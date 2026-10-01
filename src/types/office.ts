@@ -4,22 +4,22 @@ export interface OfficeFile {
   id: string;
   name: string;
   type: DocumentType;
-  extension: '.docx' | '.odt' | '.xlsx' | '.ods' | '.pptx' | '.odp' | '.pdf' | '.csv' | '.txt';
+  extension: string;
   updatedAt: number;
   createdAt: number;
-  size: number; // in bytes
+  size: number;
   isFavorite: boolean;
   isPinned: boolean;
-  folder: 'internal' | 'sdcard' | 'documents' | 'downloads';
+  folder: string;
   tags: string[];
   content: any;
 }
 
 export interface CellData {
-  value: string; // raw input e.g. "=SUM(A1:B3)" or "1500" or "Janvier"
-  display?: string; // computed value e.g. "1 500 €"
+  value: string | number;
+  display?: string;
   formula?: string;
-  format?: 'text' | 'number' | 'currency' | 'percent' | 'date';
+  format?: string;
   bold?: boolean;
   italic?: boolean;
   fontSize?: number;
@@ -32,23 +32,28 @@ export interface CellData {
 export interface CalcSheet {
   id: string;
   name: string;
-  data: Record<string, CellData>; // key is e.g. "A1", "C4"
+  data: Record<string, CellData>;
   rowCount: number;
   colCount: number;
-  frozenRows: number;
-  frozenCols: number;
+  frozenRows?: number;
+  frozenCols?: number;
 }
+
+export type SlideElementType = 'title' | 'text' | 'shape' | 'badge' | 'metric';
 
 export interface SlideElement {
   id: string;
-  type: 'title' | 'text' | 'shape' | 'badge' | 'metric';
-  content: string;
-  subtitle?: string;
-  shapeType?: 'rectangle' | 'circle' | 'pill' | 'star';
+  type: SlideElementType;
+  text?: string;
+  shapeType?: 'rect' | 'round' | 'circle' | 'triangle';
   color?: string;
   bgColor?: string;
   fontSize?: number;
   align?: 'left' | 'center' | 'right';
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
 }
 
 export interface Slide {
@@ -56,30 +61,32 @@ export interface Slide {
   title: string;
   subtitle?: string;
   background: string;
+  transition?: string;
+  notes?: string;
   elements: SlideElement[];
-  notes: string;
-  transition: 'none' | 'fade' | 'slide' | 'zoom';
 }
+
+export type PDFAnnotationType = 'highlight' | 'note' | 'stamp' | 'signature' | 'drawing';
 
 export interface PDFAnnotation {
   id: string;
-  type: 'highlight' | 'note' | 'stamp' | 'signature' | 'drawing';
+  type: PDFAnnotationType;
   page: number;
   x: number;
   y: number;
   text?: string;
   color?: string;
-  points?: { x: number; y: number }[];
+  points?: Array<{ x: number; y: number }>;
   signatureDataUrl?: string;
 }
 
 export interface AppSettings {
   pinLockEnabled: boolean;
   pinCode: string;
-  theme: 'dark' | 'light' | 'amoled';
+  theme: 'dark' | 'amoled' | 'light';
   language: 'fr' | 'en' | 'es';
   viewMode: 'mobile' | 'tablet' | 'fluid';
-  cloudProvider: 'none' | 'drive' | 'nextcloud' | 'dropbox';
+  cloudProvider: 'none' | 'nextcloud' | 'gdrive' | 'onedrive';
   autoSave: boolean;
   spellCheck: boolean;
   lastSyncTime: number | null;

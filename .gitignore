@@ -1,8 +1,14 @@
 node_modules/
-build/
+.expo/
 dist/
-coverage/
-.DS_Store
+web-build/
+android/
+ios/
 *.log
-.env*
-!.env.example
+.env
+.env.local
+.DS_Store
+*.apk
+*.aab
+*.keystore
+!android keystores/

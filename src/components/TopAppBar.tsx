@@ -1,19 +1,27 @@
-import React from 'react';
-import { Menu, ArrowLeft, Cloud, CloudOff, Check, Share2, MoreVertical, Search, Lock, FileText } from 'lucide-react';
-import { OfficeFile, DocumentType } from '../types/office';
+import React, { useState } from 'react';
+import {
+  Pressable,
+  Text,
+  StyleSheet,
+  View,
+  TextInput,
+  Modal,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import type { OfficeFile } from '../types/office';
 
-interface TopAppBarProps {
+interface Props {
   currentFile: OfficeFile | null;
   activeTab: string;
   onOpenDrawer: () => void;
   onBackToHome: () => void;
-  onRenameFile?: (newName: string) => void;
-  onOpenExport?: () => void;
-  onLockApp?: () => void;
-  pinEnabled?: boolean;
+  onRenameFile: (newName: string) => void;
+  onOpenExport: () => void;
+  onLockApp: () => void;
+  pinEnabled: boolean;
 }
 
-export const TopAppBar: React.FC<TopAppBarProps> = ({
+export default function TopAppBar({
   currentFile,
   activeTab,
   onOpenDrawer,
@@ -22,147 +30,129 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
   onOpenExport,
   onLockApp,
   pinEnabled,
-}) => {
-  const [isEditingTitle, setIsEditingTitle] = React.useState(false);
-  const [tempTitle, setTempTitle] = React.useState('');
+}: Props) {
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [tempName, setTempName] = useState(currentFile?.name || '');
 
   React.useEffect(() => {
-    if (currentFile) {
-      setTempTitle(currentFile.name);
-    }
-  }, [currentFile]);
+    setTempName(currentFile?.name || '');
+  }, [currentFile?.name]);
 
-  const handleTitleSubmit = () => {
-    setIsEditingTitle(false);
-    if (tempTitle.trim() && onRenameFile) {
-      onRenameFile(tempTitle.trim());
-    }
-  };
-
-  const getModuleTitle = () => {
-    switch (activeTab) {
-      case 'home':
-        return 'StarOffice';
-      case 'writer':
-        return 'Writer • Documents';
-      case 'calc':
-        return 'Calc • Tableurs';
-      case 'impress':
-        return 'Impress • Présentations';
-      case 'pdf':
-        return 'PDF Studio';
-      case 'files':
-        return 'Gestionnaire de Fichiers';
-      default:
-        return 'StarOffice';
-    }
-  };
-
-  const getTypeBadge = (type: DocumentType) => {
-    switch (type) {
-      case 'writer':
-        return <span className="bg-blue-600/30 text-blue-300 text-[10px] font-bold px-1.5 py-0.5 rounded border border-blue-500/30">DOCX</span>;
-      case 'calc':
-        return <span className="bg-emerald-600/30 text-emerald-300 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-500/30">XLSX</span>;
-      case 'impress':
-        return <span className="bg-amber-600/30 text-amber-300 text-[10px] font-bold px-1.5 py-0.5 rounded border border-amber-500/30">PPTX</span>;
-      case 'pdf':
-        return <span className="bg-rose-600/30 text-rose-300 text-[10px] font-bold px-1.5 py-0.5 rounded border border-rose-500/30">PDF</span>;
-    }
+  const tabLabel: Record<string, string> = {
+    home: 'StarOffice',
+    writer: 'Writer',
+    calc: 'Calc',
+    impress: 'Impress',
+    pdf: 'PDF Studio',
+    files: 'Mes fichiers',
   };
 
   return (
-    <header className="h-14 bg-slate-900 border-b border-slate-800 px-3 flex items-center justify-between z-30 shrink-0 text-slate-100 shadow-sm">
-      <div className="flex items-center gap-2 overflow-hidden flex-1">
-        {currentFile ? (
-          <button
-            onClick={onBackToHome}
-            className="p-2 rounded-full hover:bg-slate-800 active:scale-95 text-slate-300 transition-colors"
-            title="Retour à l'accueil"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-        ) : (
-          <button
-            onClick={onOpenDrawer}
-            className="p-2 rounded-full hover:bg-slate-800 active:scale-95 text-slate-300 transition-colors"
-            title="Menu StarOffice"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-        )}
+    <View style={styles.container}>
+      {currentFile ? (
+        <Pressable onPress={onBackToHome} style={styles.iconBtn}>
+          <Ionicons name="arrow-back" size={22} color="#f1f5f9" />
+        </Pressable>
+      ) : (
+        <Pressable onPress={onOpenDrawer} style={styles.iconBtn}>
+          <Ionicons name="menu" size={24} color="#f1f5f9" />
+        </Pressable>
+      )}
 
-        {currentFile ? (
-          <div className="flex items-center gap-2 overflow-hidden flex-1 mr-2">
-            {getTypeBadge(currentFile.type)}
-            {isEditingTitle ? (
-              <input
-                type="text"
-                value={tempTitle}
-                onChange={(e) => setTempTitle(e.target.value)}
-                onBlur={handleTitleSubmit}
-                onKeyDown={(e) => e.key === 'Enter' && handleTitleSubmit()}
-                autoFocus
-                className="bg-slate-800 text-white font-medium text-sm px-2 py-0.5 rounded border border-indigo-500 outline-none w-full"
-              />
-            ) : (
-              <div
-                onClick={() => setIsEditingTitle(true)}
-                className="truncate font-medium text-sm text-slate-100 cursor-pointer hover:text-indigo-300 transition-colors flex items-center gap-1.5"
-                title="Cliquer pour renommer"
-              >
-                <span className="truncate">{currentFile.name}</span>
-                <span className="text-[11px] text-emerald-400 font-normal flex items-center gap-0.5 shrink-0">
-                  <Check className="w-3 h-3" /> Enregistré
-                </span>
-              </div>
+      <View style={styles.titleWrap}>
+        {isRenaming && currentFile ? (
+          <TextInput
+            value={tempName}
+            onChangeText={setTempName}
+            autoFocus
+            selectTextOnFocus
+            onSubmitEditing={() => {
+              if (tempName.trim()) onRenameFile(tempName.trim());
+              setIsRenaming(false);
+            }}
+            onBlur={() => {
+              if (tempName.trim() && tempName !== currentFile.name) {
+                onRenameFile(tempName.trim());
+              }
+              setIsRenaming(false);
+            }}
+            style={styles.titleInput}
+            placeholder="Nom du fichier"
+            placeholderTextColor="#64748b"
+          />
+        ) : (
+          <Pressable
+            onPress={() => currentFile && setIsRenaming(true)}
+            disabled={!currentFile}
+          >
+            <Text style={styles.title} numberOfLines={1}>
+              {currentFile ? currentFile.name : tabLabel[activeTab] || 'StarOffice'}
+            </Text>
+            {currentFile && (
+              <Text style={styles.subtitle}>
+                Appuyez pour renommer
+              </Text>
             )}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm">
-              <FileText className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <h1 className="font-bold text-sm tracking-tight text-slate-100 leading-none">
-                {getModuleTitle()}
-              </h1>
-              <p className="text-[10px] text-slate-400 leading-tight">StarOffice Suite</p>
-            </div>
-          </div>
+          </Pressable>
         )}
-      </div>
+      </View>
 
-      {/* Right Action Icons */}
-      <div className="flex items-center gap-1 shrink-0">
+      <View style={styles.rightActions}>
+        {currentFile && (
+          <Pressable onPress={onOpenExport} style={styles.iconBtn}>
+            <Ionicons name="share-outline" size={22} color="#a855f7" />
+          </Pressable>
+        )}
         {pinEnabled && (
-          <button
-            onClick={onLockApp}
-            className="p-2 rounded-full hover:bg-slate-800 text-slate-400 hover:text-amber-400 transition-colors"
-            title="Verrouiller par code PIN"
-          >
-            <Lock className="w-4 h-4" />
-          </button>
+          <Pressable onPress={onLockApp} style={styles.iconBtn}>
+            <Ionicons name="lock-closed" size={20} color="#f1f5f9" />
+          </Pressable>
         )}
-
-        {currentFile && onOpenExport && (
-          <button
-            onClick={onOpenExport}
-            className="flex items-center gap-1 bg-indigo-600/80 hover:bg-indigo-600 active:scale-95 text-white text-xs px-2.5 py-1.5 rounded-lg transition-all shadow-sm font-medium"
-            title="Partager et Exporter"
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Exporter</span>
-          </button>
-        )}
-
-        {!currentFile && (
-          <div className="flex items-center gap-1 text-slate-400 text-xs px-2 py-1 rounded-full bg-slate-800/60 border border-slate-700/50">
-            <Cloud className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-[11px] text-slate-300 hidden sm:inline">Hors-ligne prêt</span>
-          </div>
-        )}
-      </div>
-    </header>
+      </View>
+    </View>
   );
-};
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1e293b',
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155',
+    height: 56,
+    paddingHorizontal: 8,
+  },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleWrap: {
+    flex: 1,
+    marginHorizontal: 8,
+  },
+  title: {
+    color: '#f1f5f9',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  subtitle: {
+    color: '#64748b',
+    fontSize: 10,
+    marginTop: 2,
+  },
+  titleInput: {
+    color: '#f1f5f9',
+    fontSize: 16,
+    fontWeight: '600',
+    borderBottomWidth: 1,
+    borderBottomColor: '#a855f7',
+    paddingVertical: 2,
+  },
+  rightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+});

@@ -1,203 +1,257 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
-  X,
-  Lock,
-  Moon,
-  Sun,
-  Globe,
-  Cloud,
-  Shield,
-  Trash2,
-  HardDrive,
-  Info,
-  CheckCircle2,
-  KeyRound
-} from 'lucide-react';
-import { AppSettings } from '../../types/office';
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  Modal,
+  SafeAreaView,
+  Switch,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import type { AppSettings } from '../../types/office';
 
-interface SettingsModalProps {
+interface Props {
   isOpen: boolean;
   onClose: () => void;
   settings: AppSettings;
-  onUpdateSettings: (newSettings: Partial<AppSettings>) => void;
+  onUpdateSettings: (partial: Partial<AppSettings>) => void;
   onOpenPinSetup: () => void;
   onClearCache: () => void;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({
+export default function SettingsModal({
   isOpen,
   onClose,
   settings,
   onUpdateSettings,
   onOpenPinSetup,
   onClearCache,
-}) => {
-  if (!isOpen) return null;
-
+}: Props) {
   return (
-    <div className="absolute inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 select-none animate-in fade-in duration-200">
-      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-          <h2 className="text-base font-bold text-white flex items-center gap-2">
-            <span>Paramètres StarOffice</span>
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Modal visible={isOpen} animationType="slide" transparent onRequestClose={onClose}>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Pressable onPress={onClose} style={styles.closeBtn}>
+            <Ionicons name="close" size={22} color="#f1f5f9" />
+          </Pressable>
+          <Text style={styles.title}>Paramètres</Text>
+          <View style={{ width: 32 }} />
+        </View>
 
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto py-3 space-y-4 text-xs text-slate-300 pr-1">
-          {/* Section: Sécurité & PIN */}
-          <div className="space-y-2">
-            <div className="font-bold text-slate-400 uppercase tracking-wider text-[10px]">
-              Sécurité & Verrouillage
-            </div>
-            <div className="bg-slate-800/70 p-3 rounded-2xl border border-slate-700/60 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <Lock className="w-4 h-4 text-amber-400" />
-                  <div>
-                    <div className="font-semibold text-white">Verrouillage par code PIN</div>
-                    <div className="text-[11px] text-slate-400">Demande le code à chaque ouverture</div>
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={settings.pinLockEnabled}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      onOpenPinSetup();
-                    } else {
-                      onUpdateSettings({ pinLockEnabled: false });
-                    }
-                  }}
-                  className="w-4 h-4 text-indigo-600 rounded cursor-pointer"
-                />
-              </div>
+        <View style={styles.body}>
+          <Text style={styles.sectionTitle}>Sécurité</Text>
+          <Pressable onPress={onOpenPinSetup} style={styles.row}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="key" size={20} color="#f59e0b" />
+              <View>
+                <Text style={styles.rowLabel}>Verrouillage PIN</Text>
+                <Text style={styles.rowSub}>
+                  {settings.pinLockEnabled ? 'Activé' : 'Désactivé'}
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={settings.pinLockEnabled}
+              onValueChange={(v) => {
+                if (v) onOpenPinSetup();
+                else onUpdateSettings({ pinLockEnabled: false, pinCode: '' });
+              }}
+              trackColor={{ false: '#475569', true: '#a855f7' }}
+            />
+          </Pressable>
 
-              {settings.pinLockEnabled && (
-                <button
-                  onClick={onOpenPinSetup}
-                  className="w-full py-1.5 px-3 bg-slate-700/70 hover:bg-slate-700 text-indigo-300 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
+          <Text style={styles.sectionTitle}>Apparence</Text>
+          <View style={styles.row}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="color-palette" size={20} color="#a855f7" />
+              <Text style={styles.rowLabel}>Thème</Text>
+            </View>
+            <View style={styles.choiceGroup}>
+              {(['light', 'dark', 'amoled'] as const).map((t) => (
+                <Pressable
+                  key={t}
+                  onPress={() => onUpdateSettings({ theme: t })}
+                  style={[
+                    styles.choiceChip,
+                    settings.theme === t && styles.choiceChipActive,
+                  ]}
                 >
-                  <KeyRound className="w-3.5 h-3.5" /> Modifier mon code PIN
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Section: Thème d'affichage */}
-          <div className="space-y-2">
-            <div className="font-bold text-slate-400 uppercase tracking-wider text-[10px]">
-              Thème & Apparence
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                onClick={() => onUpdateSettings({ theme: 'dark' })}
-                className={`p-2.5 rounded-xl border text-center transition-all ${
-                  settings.theme === 'dark'
-                    ? 'border-indigo-500 bg-indigo-600/20 text-white font-semibold'
-                    : 'border-slate-800 bg-slate-800/60 text-slate-400'
-                }`}
-              >
-                <Moon className="w-4 h-4 mx-auto mb-1 text-indigo-400" />
-                Sombre
-              </button>
-              <button
-                onClick={() => onUpdateSettings({ theme: 'amoled' })}
-                className={`p-2.5 rounded-xl border text-center transition-all ${
-                  settings.theme === 'amoled'
-                    ? 'border-indigo-500 bg-indigo-600/20 text-white font-semibold'
-                    : 'border-slate-800 bg-slate-800/60 text-slate-400'
-                }`}
-              >
-                <div className="w-4 h-4 rounded-full bg-black mx-auto mb-1 border border-slate-700" />
-                AMOLED
-              </button>
-              <button
-                onClick={() => onUpdateSettings({ theme: 'light' })}
-                className={`p-2.5 rounded-xl border text-center transition-all ${
-                  settings.theme === 'light'
-                    ? 'border-indigo-500 bg-indigo-600/20 text-white font-semibold'
-                    : 'border-slate-800 bg-slate-800/60 text-slate-400'
-                }`}
-              >
-                <Sun className="w-4 h-4 mx-auto mb-1 text-amber-400" />
-                Clair
-              </button>
-            </div>
-          </div>
-
-          {/* Section: Langue */}
-          <div className="space-y-2">
-            <div className="font-bold text-slate-400 uppercase tracking-wider text-[10px]">
-              Langue de l'application
-            </div>
-            <div className="flex gap-2">
-              {[
-                { id: 'fr', label: 'Français' },
-                { id: 'en', label: 'English' },
-                { id: 'es', label: 'Español' },
-              ].map((l) => (
-                <button
-                  key={l.id}
-                  onClick={() => onUpdateSettings({ language: l.id as any })}
-                  className={`flex-1 py-2 rounded-xl text-center border text-xs transition-colors ${
-                    settings.language === l.id
-                      ? 'border-indigo-500 bg-indigo-600 text-white font-semibold'
-                      : 'border-slate-800 bg-slate-800/60 text-slate-400'
-                  }`}
-                >
-                  {l.label}
-                </button>
+                  <Text
+                    style={[
+                      styles.choiceText,
+                      settings.theme === t && styles.choiceTextActive,
+                    ]}
+                  >
+                    {t === 'light' ? 'Clair' : t === 'dark' ? 'Sombre' : 'AMOLED'}
+                  </Text>
+                </Pressable>
               ))}
-            </div>
-          </div>
+            </View>
+          </View>
 
-          {/* Section: Synchronisation Cloud */}
-          <div className="space-y-2">
-            <div className="font-bold text-slate-400 uppercase tracking-wider text-[10px]">
-              Synchronisation & Sauvegarde
-            </div>
-            <div className="bg-slate-800/70 p-3 rounded-2xl border border-slate-700/60 space-y-2">
-              <label className="text-slate-400 block text-[11px]">Fournisseur de stockage distant :</label>
-              <select
-                value={settings.cloudProvider}
-                onChange={(e) => onUpdateSettings({ cloudProvider: e.target.value as any })}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white outline-none"
-              >
-                <option value="none">Stockage local 100% hors-ligne (Recommandé)</option>
-                <option value="nextcloud">Nextcloud / WebDAV Libre</option>
-                <option value="drive">Google Drive</option>
-                <option value="dropbox">Dropbox</option>
-              </select>
-            </div>
-          </div>
+          <View style={styles.row}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="language" size={20} color="#3b82f6" />
+              <Text style={styles.rowLabel}>Langue</Text>
+            </View>
+            <View style={styles.choiceGroup}>
+              {(['fr', 'en', 'es'] as const).map((l) => (
+                <Pressable
+                  key={l}
+                  onPress={() => onUpdateSettings({ language: l })}
+                  style={[
+                    styles.choiceChip,
+                    settings.language === l && styles.choiceChipActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.choiceText,
+                      settings.language === l && styles.choiceTextActive,
+                    ]}
+                  >
+                    {l.toUpperCase()}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
 
-          {/* Section: Nettoyage */}
-          <div className="space-y-2 pt-2 border-t border-slate-800">
-            <div className="font-bold text-slate-400 uppercase tracking-wider text-[10px]">
-              Données Locales
-            </div>
-            <button
-              onClick={onClearCache}
-              className="w-full py-2 px-3 bg-rose-600/10 hover:bg-rose-600/20 text-rose-400 border border-rose-500/20 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <Trash2 className="w-3.5 h-3.5" /> Réinitialiser les documents d'exemple
-            </button>
-          </div>
-        </div>
+          <Text style={styles.sectionTitle}>Édition</Text>
+          <View style={styles.row}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="save" size={20} color="#10b981" />
+              <Text style={styles.rowLabel}>Sauvegarde automatique</Text>
+            </View>
+            <Switch
+              value={settings.autoSave}
+              onValueChange={(v) => onUpdateSettings({ autoSave: v })}
+              trackColor={{ false: '#475569', true: '#a855f7' }}
+            />
+          </View>
 
-        {/* Footer */}
-        <div className="pt-3 border-t border-slate-800 text-center text-[11px] text-slate-400">
-          StarOffice Mobile OS • Licence Libre GNU GPLv3
-        </div>
-      </div>
-    </div>
+          <View style={styles.row}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="spell-check" size={20} color="#ef4444" />
+              <Text style={styles.rowLabel}>Correction orthographique</Text>
+            </View>
+            <Switch
+              value={settings.spellCheck}
+              onValueChange={(v) => onUpdateSettings({ spellCheck: v })}
+              trackColor={{ false: '#475569', true: '#a855f7' }}
+            />
+          </View>
+
+          <Text style={styles.sectionTitle}>Stockage</Text>
+          <Pressable onPress={onClearCache} style={styles.dangerBtn}>
+            <Ionicons name="trash-outline" size={20} color="#ef4444" />
+            <Text style={styles.dangerText}>Réinitialiser les documents</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    </Modal>
   );
-};
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0f172a',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e293b',
+  },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: {
+    color: '#f1f5f9',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  body: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  sectionTitle: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#1e293b',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 6,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  rowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  rowLabel: {
+    color: '#f1f5f9',
+    fontSize: 13,
+  },
+  rowSub: {
+    color: '#94a3b8',
+    fontSize: 10,
+    marginTop: 2,
+  },
+  choiceGroup: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  choiceChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: '#0f172a',
+  },
+  choiceChipActive: {
+    backgroundColor: '#a855f7',
+  },
+  choiceText: {
+    color: '#94a3b8',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  choiceTextActive: {
+    color: '#fff',
+  },
+  dangerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  dangerText: {
+    color: '#ef4444',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+});

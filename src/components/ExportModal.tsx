@@ -1,200 +1,213 @@
-import React from 'react';
-import { X, Download, Printer, Share2, Copy, Check, FileText, Table2, Presentation, FileCheck } from 'lucide-react';
-import { OfficeFile } from '../types/office';
-import { exportWriterFile, exportCalcFile, exportPresentationFile, triggerPrint, downloadBlob } from '../utils/export';
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  Modal,
+  SafeAreaView,
+  Alert,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import type { OfficeFile } from '../types/office';
 
-interface ExportModalProps {
+interface Props {
   isOpen: boolean;
   onClose: () => void;
   file: OfficeFile;
 }
 
-export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, file }) => {
-  const [copied, setCopied] = React.useState(false);
+const FORMATS: Record<string, Array<{ id: string; label: string; mime: string; ext: string }>> = {
+  writer: [
+    { id: 'docx', label: 'Document Word (.docx)', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: '.docx' },
+    { id: 'txt', label: 'Texte simple (.txt)', mime: 'text/plain', ext: '.txt' },
+    { id: 'html', label: 'HTML (.html)', mime: 'text/html', ext: '.html' },
+    { id: 'json', label: 'Sauvegarde JSON (.json)', mime: 'application/json', ext: '.json' },
+  ],
+  calc: [
+    { id: 'csv', label: 'CSV (.csv)', mime: 'text/csv', ext: '.csv' },
+    { id: 'json', label: 'Sauvegarde JSON (.json)', mime: 'application/json', ext: '.json' },
+  ],
+  impress: [
+    { id: 'json', label: 'Sauvegarde JSON (.json)', mime: 'application/json', ext: '.json' },
+  ],
+  pdf: [
+    { id: 'json', label: 'Sauvegarde JSON (.json)', mime: 'application/json', ext: '.json' },
+  ],
+};
 
-  if (!isOpen) return null;
+export default function ExportModal({ isOpen, onClose, file }: Props) {
+  const [busy, setBusy] = useState(false);
+  const formats = FORMATS[file.type] || [];
 
-  const handleShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: file.name,
-          text: `Document StarOffice : ${file.name}`,
-        });
-      } catch (e) {
-        // ignored or cancelled
+  const handleExport = async (fmt: typeof formats[number]) => {
+    setBusy(true);
+    try {
+      const { exportContent } = await import('../utils/export');
+      let content = '';
+      const baseName = file.name.replace(/\.[^/.]+$/, '');
+      const filename = `${baseName}${fmt.ext}`;
+
+      if (file.type === 'writer') {
+        if (fmt.id === 'txt') {
+          // Strip HTML
+          content = String(file.content?.html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        } else {
+          content = file.content?.html || '';
+        }
+      } else if (file.type === 'calc') {
+        if (fmt.id === 'csv') {
+          const lines: string[] = [];
+          for (const sheet of file.content?.sheets || []) {
+            for (let r = 0; r < sheet.rowCount; r++) {
+              const cells: string[] = [];
+              for (let c = 0; c < sheet.colCount; c++) {
+                const coord = String.fromCharCode(65 + c) + (r + 1);
+                const v = sheet.data?.[coord]?.value ?? '';
+                cells.push(String(v).replace(/[,\n]/g, ' '));
+              }
+              if (cells.some((c) => c)) lines.push(cells.join(','));
+            }
+          }
+          content = lines.join('\n');
+        } else {
+          content = JSON.stringify(file.content, null, 2);
+        }
+      } else {
+        content = JSON.stringify(file.content, null, 2);
       }
-    } else {
-      navigator.clipboard.writeText(window.location.href);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
 
-  const renderExportOptions = () => {
-    switch (file.type) {
-      case 'writer':
-        return (
-          <div className="grid grid-cols-2 gap-2.5">
-            <button
-              onClick={() => { exportWriterFile(file, 'docx'); onClose(); }}
-              className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-            >
-              <div className="font-semibold text-xs text-blue-400 mb-0.5">Microsoft Word (.docx)</div>
-              <div className="text-[11px] text-slate-400">Format universel Word 2016-2026</div>
-            </button>
-            <button
-              onClick={() => { exportWriterFile(file, 'odt'); onClose(); }}
-              className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-            >
-              <div className="font-semibold text-xs text-indigo-400 mb-0.5">OpenDocument (.odt)</div>
-              <div className="text-[11px] text-slate-400">Format libre LibreOffice & Oasis</div>
-            </button>
-            <button
-              onClick={() => { exportWriterFile(file, 'txt'); onClose(); }}
-              className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-            >
-              <div className="font-semibold text-xs text-slate-300 mb-0.5">Texte brut (.txt)</div>
-              <div className="text-[11px] text-slate-400">Sans mise en forme, ultra léger</div>
-            </button>
-            <button
-              onClick={() => { exportWriterFile(file, 'html'); onClose(); }}
-              className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-            >
-              <div className="font-semibold text-xs text-amber-400 mb-0.5">Page Web (.html)</div>
-              <div className="text-[11px] text-slate-400">Format web autonome</div>
-            </button>
-          </div>
-        );
-
-      case 'calc':
-        return (
-          <div className="grid grid-cols-2 gap-2.5">
-            <button
-              onClick={() => { exportCalcFile(file, 'xlsx'); onClose(); }}
-              className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-            >
-              <div className="font-semibold text-xs text-emerald-400 mb-0.5">Excel Classeur (.xlsx)</div>
-              <div className="text-[11px] text-slate-400">Compatible Microsoft Excel & 365</div>
-            </button>
-            <button
-              onClick={() => { exportCalcFile(file, 'csv'); onClose(); }}
-              className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-            >
-              <div className="font-semibold text-xs text-teal-400 mb-0.5">Fichier CSV (.csv)</div>
-              <div className="text-[11px] text-slate-400">Données tabulaires séparées par virgules</div>
-            </button>
-            <button
-              onClick={() => { exportCalcFile(file, 'ods'); onClose(); }}
-              className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-            >
-              <div className="font-semibold text-xs text-indigo-400 mb-0.5">OpenDocument (.ods)</div>
-              <div className="text-[11px] text-slate-400">Format LibreOffice Calc</div>
-            </button>
-            <button
-              onClick={() => { triggerPrint(); onClose(); }}
-              className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-            >
-              <div className="font-semibold text-xs text-rose-400 mb-0.5">Imprimer / PDF</div>
-              <div className="text-[11px] text-slate-400">Mise en page prête pour tirage</div>
-            </button>
-          </div>
-        );
-
-      case 'impress':
-        return (
-          <div className="grid grid-cols-2 gap-2.5">
-            <button
-              onClick={() => { exportPresentationFile(file); onClose(); }}
-              className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-            >
-              <div className="font-semibold text-xs text-amber-400 mb-0.5">PowerPoint / Deck (.json/.pptx)</div>
-              <div className="text-[11px] text-slate-400">Sauvegarde structurée complète</div>
-            </button>
-            <button
-              onClick={() => { triggerPrint(); onClose(); }}
-              className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-            >
-              <div className="font-semibold text-xs text-rose-400 mb-0.5">Imprimer / Diaporama PDF</div>
-              <div className="text-[11px] text-slate-400">Une page par diapositive</div>
-            </button>
-          </div>
-        );
-
-      case 'pdf':
-        return (
-          <div className="grid grid-cols-2 gap-2.5">
-            <button
-              onClick={() => {
-                const json = JSON.stringify(file.content, null, 2);
-                const blob = new Blob([json], { type: 'application/json' });
-                downloadBlob(blob, `${file.name.replace(/\.[^/.]+$/, '')}_signe.json`);
-                onClose();
-              }}
-              className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-            >
-              <div className="font-semibold text-xs text-rose-400 mb-0.5">Document Signé (.pdf)</div>
-              <div className="text-[11px] text-slate-400">Avec signatures & tampons certifiés</div>
-            </button>
-            <button
-              onClick={() => { triggerPrint(); onClose(); }}
-              className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-            >
-              <div className="font-semibold text-xs text-slate-300 mb-0.5">Impression directe</div>
-              <div className="text-[11px] text-slate-400">Vers imprimante Wi-Fi ou PDF</div>
-            </button>
-          </div>
-        );
+      await exportContent(content, filename, fmt.mime);
+      onClose();
+    } catch (e) {
+      Alert.alert("Erreur d'export", String(e));
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
-    <div className="absolute inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 select-none animate-in fade-in duration-200">
-      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-2xl space-y-4">
-        <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-          <div>
-            <h3 className="font-bold text-sm text-white">Partager & Exporter</h3>
-            <p className="text-xs text-slate-400 truncate max-w-[280px]">{file.name}</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Modal visible={isOpen} animationType="slide" transparent onRequestClose={onClose}>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Pressable onPress={onClose} style={styles.closeBtn}>
+            <Ionicons name="close" size={22} color="#f1f5f9" />
+          </Pressable>
+          <Text style={styles.title}>Exporter / Partager</Text>
+          <View style={{ width: 32 }} />
+        </View>
 
-        {/* Formats Grid */}
-        <div className="space-y-2">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-            Choisir un format de téléchargement
-          </div>
-          {renderExportOptions()}
-        </div>
+        <View style={styles.body}>
+          <View style={styles.fileCard}>
+            <Ionicons
+              name={file.type === 'writer' ? 'document-text' : file.type === 'calc' ? 'grid' : file.type === 'impress' ? 'easel' : 'document'}
+              size={32}
+              color="#a855f7"
+            />
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={styles.fileName} numberOfLines={1}>{file.name}</Text>
+              <Text style={styles.fileMeta}>{file.extension.toUpperCase()} · {Math.round(file.size / 1024)} Ko</Text>
+            </View>
+          </View>
 
-        {/* Quick share actions */}
-        <div className="pt-2 border-t border-slate-800 flex gap-2">
-          <button
-            onClick={handleShare}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-indigo-600 hover:bg-indigo-500 active:scale-98 text-white rounded-xl text-xs font-semibold transition-all shadow-md shadow-indigo-600/30"
-          >
-            <Share2 className="w-4 h-4" />
-            <span>Partager via Android</span>
-          </button>
+          <Text style={styles.sectionTitle}>Choisir un format</Text>
+          {formats.map((fmt) => (
+            <Pressable
+              key={fmt.id}
+              disabled={busy}
+              onPress={() => handleExport(fmt)}
+              style={({ pressed }) => [
+                styles.fmtBtn,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Ionicons name="download-outline" size={20} color="#a855f7" />
+              <Text style={styles.fmtLabel}>{fmt.label}</Text>
+              <Ionicons name="chevron-forward" size={14} color="#475569" />
+            </Pressable>
+          ))}
 
-          <button
-            onClick={() => {
-              triggerPrint();
-              onClose();
-            }}
-            className="flex items-center justify-center gap-1.5 py-2.5 px-4 bg-slate-800 hover:bg-slate-700 active:scale-98 text-slate-200 rounded-xl text-xs font-semibold transition-all border border-slate-700"
-            title="Imprimer le document"
-          >
-            <Printer className="w-4 h-4" />
-            <span className="hidden sm:inline">Imprimer</span>
-          </button>
-        </div>
-      </div>
-    </div>
+          {busy && (
+            <Text style={{ color: '#94a3b8', textAlign: 'center', marginTop: 12 }}>
+              Export en cours...
+            </Text>
+          )}
+        </View>
+      </SafeAreaView>
+    </Modal>
   );
-};
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0f172a',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e293b',
+  },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: {
+    color: '#f1f5f9',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  body: {
+    padding: 16,
+  },
+  fileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1e293b',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  fileName: {
+    color: '#f1f5f9',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  fileMeta: {
+    color: '#94a3b8',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  sectionTitle: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  fmtBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#1e293b',
+    borderRadius: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  fmtLabel: {
+    flex: 1,
+    color: '#f1f5f9',
+    fontSize: 13,
+  },
+});

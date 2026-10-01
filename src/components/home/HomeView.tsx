@@ -1,22 +1,17 @@
 import React, { useState } from 'react';
 import {
-  Search,
-  FileText,
-  Table2,
-  Presentation,
-  FileCheck,
-  Sparkles,
-  Clock,
-  Star,
-  MoreVertical,
-  HardDrive,
-  ShieldCheck,
-  PlusCircle,
-  FolderOpen
-} from 'lucide-react';
-import { OfficeFile, DocumentType } from '../../types/office';
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  ScrollView,
+  TextInput,
+  FlatList,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import type { OfficeFile, DocumentType } from '../../types/office';
 
-interface HomeViewProps {
+interface Props {
   files: OfficeFile[];
   onOpenFile: (file: OfficeFile) => void;
   onNewFile: (type: DocumentType) => void;
@@ -26,7 +21,14 @@ interface HomeViewProps {
   onNavigateToTab: (tab: string) => void;
 }
 
-export const HomeView: React.FC<HomeViewProps> = ({
+const QUICK: Array<{ type: DocumentType; icon: any; color: string; label: string }> = [
+  { type: 'writer', icon: 'document-text', color: '#3b82f6', label: 'Writer' },
+  { type: 'calc', icon: 'grid', color: '#10b981', label: 'Calc' },
+  { type: 'impress', icon: 'easel', color: '#f59e0b', label: 'Impress' },
+  { type: 'pdf', icon: 'document', color: '#ef4444', label: 'PDF' },
+];
+
+export default function HomeView({
   files,
   onOpenFile,
   onNewFile,
@@ -34,242 +36,261 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onToggleFavorite,
   onDeleteFile,
   onNavigateToTab,
-}) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTag, setSelectedTag] = useState<'all' | 'recent' | 'favorites'>('recent');
+}: Props) {
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<'recent' | 'favorites'>('recent');
 
-  const filteredFiles = files
-    .filter((f) => {
-      if (searchQuery.trim()) {
-        return f.name.toLowerCase().includes(searchQuery.toLowerCase());
-      }
-      if (selectedTag === 'favorites') {
-        return f.isFavorite;
-      }
-      return true;
-    })
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const recent = [...files]
+    .filter((f) => !search || f.name.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, 20);
 
-  const getFileIcon = (type: DocumentType) => {
+  const favorites = files
+    .filter((f) => f.isFavorite && (!search || f.name.toLowerCase().includes(search.toLowerCase())))
+    .slice(0, 20);
+
+  const list = filter === 'recent' ? recent : favorites;
+
+  const getIcon = (type: string): any => {
     switch (type) {
-      case 'writer':
-        return <FileText className="w-5 h-5 text-blue-400" />;
-      case 'calc':
-        return <Table2 className="w-5 h-5 text-emerald-400" />;
-      case 'impress':
-        return <Presentation className="w-5 h-5 text-amber-400" />;
-      case 'pdf':
-        return <FileCheck className="w-5 h-5 text-rose-400" />;
+      case 'writer': return 'document-text';
+      case 'calc': return 'grid';
+      case 'impress': return 'easel';
+      case 'pdf': return 'document';
+      default: return 'document';
     }
   };
 
-  const getBadgeColor = (type: DocumentType) => {
+  const getColor = (type: string): string => {
     switch (type) {
-      case 'writer':
-        return 'bg-blue-500/10 text-blue-300 border-blue-500/20';
-      case 'calc':
-        return 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20';
-      case 'impress':
-        return 'bg-amber-500/10 text-amber-300 border-amber-500/20';
-      case 'pdf':
-        return 'bg-rose-500/10 text-rose-300 border-rose-500/20';
+      case 'writer': return '#3b82f6';
+      case 'calc': return '#10b981';
+      case 'impress': return '#f59e0b';
+      case 'pdf': return '#ef4444';
+      default: return '#6366f1';
     }
   };
 
   return (
-    <div className="flex-1 overflow-y-auto pb-20 p-3 sm:p-6 select-none bg-slate-900 w-full">
-      <div className="w-full max-w-4xl mx-auto space-y-5">
-        {/* Search Header */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Rechercher dans StarOffice..."
-            className="w-full bg-slate-800/80 border border-slate-700/80 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-indigo-500 transition-colors shadow-inner"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-2.5 text-xs text-slate-400 hover:text-white"
+    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 80 }}>
+      <View style={styles.header}>
+        <Text style={styles.greeting}>Bonjour 👋</Text>
+        <Text style={styles.appName}>StarOffice Mobile</Text>
+      </View>
+
+      <View style={styles.searchWrap}>
+        <Ionicons name="search" size={18} color="#94a3b8" style={{ marginLeft: 8 }} />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Rechercher un fichier..."
+          placeholderTextColor="#475569"
+          style={styles.search}
+        />
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Modules</Text>
+        <View style={styles.quickGrid}>
+          {QUICK.map((q) => (
+            <Pressable
+              key={q.type}
+              onPress={() => onNewFile(q.type)}
+              style={({ pressed }) => [styles.quickCard, pressed && { opacity: 0.8 }]}
             >
-              ✕
-            </button>
-          )}
-        </div>
+              <View style={[styles.quickIcon, { backgroundColor: q.color + '22' }]}>
+                <Ionicons name={q.icon} size={26} color={q.color} />
+              </View>
+              <Text style={styles.quickLabel}>{q.label}</Text>
+              <Text style={styles.quickSubLabel}>Nouveau document</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
 
-        {/* Quick Launch Cards */}
-        <div>
-          <div className="flex items-center justify-between mb-2.5 px-0.5">
-            <span className="text-xs font-bold text-slate-300 tracking-wide uppercase">
-              Créer un nouveau
-            </span>
-            <button
-              onClick={onOpenTemplates}
-              className="text-xs text-amber-400 hover:text-amber-300 font-medium flex items-center gap-1 transition-colors"
-            >
-              <Sparkles className="w-3.5 h-3.5" /> Modèles Pro
-            </button>
-          </div>
+      <View style={styles.section}>
+        <View style={styles.rowHeader}>
+          <Pressable onPress={() => setFilter('recent')}>
+            <Text style={[styles.sectionTitle, filter === 'recent' && styles.sectionTitleActive]}>
+              Récents
+            </Text>
+          </Pressable>
+          <Pressable onPress={() => setFilter('favorites')}>
+            <Text style={[styles.sectionTitle, filter === 'favorites' && styles.sectionTitleActive]}>
+              Favoris
+            </Text>
+          </Pressable>
+        </View>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <button
-              onClick={() => onNewFile('writer')}
-              className="bg-slate-800/70 hover:bg-slate-800 active:scale-95 border border-slate-700/60 p-3 rounded-2xl flex flex-col items-center text-center transition-all group shadow-sm"
-            >
-              <div className="w-11 h-11 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform mb-2 shadow-sm">
-                <FileText className="w-5 h-5" />
-              </div>
-              <span className="text-xs font-semibold text-slate-200">Writer</span>
-              <span className="text-[10px] text-slate-400">Documents .docx</span>
-            </button>
-
-            <button
-              onClick={() => onNewFile('calc')}
-              className="bg-slate-800/70 hover:bg-slate-800 active:scale-95 border border-slate-700/60 p-3 rounded-2xl flex flex-col items-center text-center transition-all group shadow-sm"
-            >
-              <div className="w-11 h-11 rounded-xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform mb-2 shadow-sm">
-                <Table2 className="w-5 h-5" />
-              </div>
-              <span className="text-xs font-semibold text-slate-200">Calc</span>
-              <span className="text-[10px] text-slate-400">Tableurs .xlsx</span>
-            </button>
-
-            <button
-              onClick={() => onNewFile('impress')}
-              className="bg-slate-800/70 hover:bg-slate-800 active:scale-95 border border-slate-700/60 p-3 rounded-2xl flex flex-col items-center text-center transition-all group shadow-sm"
-            >
-              <div className="w-11 h-11 rounded-xl bg-amber-600/20 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform mb-2 shadow-sm">
-                <Presentation className="w-5 h-5" />
-              </div>
-              <span className="text-xs font-semibold text-slate-200">Impress</span>
-              <span className="text-[10px] text-slate-400">Diaporamas .pptx</span>
-            </button>
-
-            <button
-              onClick={() => onNewFile('pdf')}
-              className="bg-slate-800/70 hover:bg-slate-800 active:scale-95 border border-slate-700/60 p-3 rounded-2xl flex flex-col items-center text-center transition-all group shadow-sm"
-            >
-              <div className="w-11 h-11 rounded-xl bg-rose-600/20 border border-rose-500/30 flex items-center justify-center text-rose-400 group-hover:scale-110 transition-transform mb-2 shadow-sm">
-                <FileCheck className="w-5 h-5" />
-              </div>
-              <span className="text-xs font-semibold text-slate-200">PDF Studio</span>
-              <span className="text-[10px] text-slate-400">Lecture & Signature</span>
-            </button>
-          </div>
-        </div>
-
-      {/* Filter Tabs */}
-      <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
-        <button
-          onClick={() => setSelectedTag('recent')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-            selectedTag === 'recent'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Clock className="w-3.5 h-3.5" />
-          <span>Récents</span>
-        </button>
-
-        <button
-          onClick={() => setSelectedTag('favorites')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-            selectedTag === 'favorites'
-              ? 'bg-amber-600 text-white shadow-sm'
-              : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Star className="w-3.5 h-3.5" />
-          <span>Favoris</span>
-        </button>
-
-        <button
-          onClick={() => onNavigateToTab('files')}
-          className="ml-auto text-xs text-slate-400 hover:text-indigo-400 flex items-center gap-1"
-        >
-          <FolderOpen className="w-3.5 h-3.5" />
-          <span>Tout voir</span>
-        </button>
-      </div>
-
-      {/* Files List */}
-      <div className="space-y-2">
-        {filteredFiles.length === 0 ? (
-          <div className="p-8 text-center bg-slate-800/40 rounded-2xl border border-slate-800 text-slate-400 space-y-2">
-            <p className="text-xs">Aucun document trouvé.</p>
-            <button
-              onClick={() => onNewFile('writer')}
-              className="text-xs text-indigo-400 hover:underline font-semibold"
-            >
-              + Créer mon premier document
-            </button>
-          </div>
+        {list.length === 0 ? (
+          <View style={styles.empty}>
+            <Ionicons name="folder-open-outline" size={36} color="#475569" />
+            <Text style={styles.emptyText}>Aucun fichier {filter === 'favorites' ? 'favori' : 'récent'}</Text>
+            <Pressable onPress={onOpenTemplates} style={styles.emptyBtn}>
+              <Text style={styles.emptyBtnText}>Voir les modèles</Text>
+            </Pressable>
+          </View>
         ) : (
-          filteredFiles.map((file) => (
-            <div
+          list.map((file) => (
+            <Pressable
               key={file.id}
-              onClick={() => onOpenFile(file)}
-              className="bg-slate-800/70 hover:bg-slate-800 border border-slate-700/60 hover:border-slate-600 p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all active:scale-[0.99] group shadow-sm"
+              onPress={() => onOpenFile(file)}
+              style={({ pressed }) => [styles.fileCard, pressed && { opacity: 0.7 }]}
             >
-              {/* Icon Container */}
-              <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700/60 flex items-center justify-center shrink-0 shadow-inner group-hover:scale-105 transition-transform">
-                {getFileIcon(file.type)}
-              </div>
-
-              {/* Title & Info */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <h3 className="text-xs font-semibold text-slate-100 group-hover:text-indigo-300 transition-colors truncate">
-                    {file.name}
-                  </h3>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
-                  <span className={`px-1.5 py-0.2 rounded border font-mono ${getBadgeColor(file.type)}`}>
-                    {file.extension.toUpperCase()}
-                  </span>
-                  <span>{(file.size / 1024).toFixed(0)} Ko</span>
-                  <span>•</span>
-                  <span>
-                    {new Date(file.updatedAt).toLocaleDateString('fr-FR', {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                </div>
-              </div>
-
-              {/* Quick Actions */}
-              <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                <button
-                  onClick={() => onToggleFavorite(file.id)}
-                  className={`p-1.5 rounded-full hover:bg-slate-700 transition-colors ${
-                    file.isFavorite ? 'text-amber-400' : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                  title="Ajouter aux favoris"
-                >
-                  <Star className="w-4 h-4 fill-current" />
-                </button>
-              </div>
-            </div>
+              <View style={[styles.fileIcon, { backgroundColor: getColor(file.type) + '22' }]}>
+                <Ionicons name={getIcon(file.type)} size={22} color={getColor(file.type)} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fileName} numberOfLines={1}>{file.name}</Text>
+                <Text style={styles.fileMeta}>
+                  {new Date(file.updatedAt).toLocaleDateString('fr-FR', {
+                    day: '2-digit',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })} · {Math.round(file.size / 1024)} Ko
+                </Text>
+              </View>
+              {file.isFavorite && (
+                <Ionicons name="star" size={16} color="#f59e0b" />
+              )}
+              <Ionicons name="chevron-forward" size={16} color="#475569" />
+            </Pressable>
           ))
         )}
-      </div>
-
-      {/* Open Source Banner */}
-      <div className="bg-gradient-to-r from-indigo-950/60 via-slate-900 to-slate-900 border border-indigo-900/40 p-3 rounded-2xl flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-indigo-600/30 flex items-center justify-center text-indigo-400 shrink-0">
-          <ShieldCheck className="w-4 h-4" />
-        </div>
-        <div className="text-xs text-slate-300">
-          <span className="font-semibold text-white">100% Souverain & Privé :</span> Vos documents restent sur cet appareil.
-        </div>
-      </div>
-      </div>
-    </div>
+      </View>
+    </ScrollView>
   );
-};
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0f172a',
+  },
+  header: {
+    marginBottom: 16,
+  },
+  greeting: {
+    color: '#94a3b8',
+    fontSize: 13,
+  },
+  appName: {
+    color: '#f1f5f9',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginTop: 2,
+  },
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1e293b',
+    borderRadius: 12,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  search: {
+    flex: 1,
+    color: '#f1f5f9',
+    fontSize: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+  },
+  section: {
+    marginBottom: 18,
+  },
+  sectionTitle: {
+    color: '#94a3b8',
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  sectionTitleActive: {
+    color: '#a855f7',
+  },
+  rowHeader: {
+    flexDirection: 'row',
+    gap: 16,
+    marginBottom: 10,
+  },
+  quickGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  quickCard: {
+    flex: 1,
+    backgroundColor: '#1e293b',
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  quickIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  quickLabel: {
+    color: '#f1f5f9',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  quickSubLabel: {
+    color: '#64748b',
+    fontSize: 9,
+    marginTop: 2,
+  },
+  fileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#1e293b',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  fileIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fileName: {
+    color: '#f1f5f9',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  fileMeta: {
+    color: '#94a3b8',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  empty: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    gap: 12,
+  },
+  emptyText: {
+    color: '#64748b',
+    fontSize: 13,
+  },
+  emptyBtn: {
+    backgroundColor: '#a855f7',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  emptyBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+});

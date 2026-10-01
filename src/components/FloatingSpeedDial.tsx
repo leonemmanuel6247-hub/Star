@@ -1,116 +1,132 @@
 import React, { useState } from 'react';
-import { Plus, FileText, Table2, Presentation, FileCheck, Sparkles, X } from 'lucide-react';
-import { DocumentType } from '../types/office';
+import {
+  Pressable,
+  Text,
+  StyleSheet,
+  View,
+  Modal,
+  TouchableOpacity,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import type { DocumentType } from '../types/office';
 
-interface FloatingSpeedDialProps {
+interface Props {
+  isVisible: boolean;
   onNewDocument: (type: DocumentType) => void;
   onOpenTemplates: () => void;
-  isVisible: boolean;
 }
 
-export const FloatingSpeedDial: React.FC<FloatingSpeedDialProps> = ({
-  onNewDocument,
-  onOpenTemplates,
-  isVisible,
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
+const ACTIONS: Array<{ type: DocumentType | 'templates'; icon: any; color: string; label: string }> = [
+  { type: 'writer', icon: 'document-text', color: '#3b82f6', label: 'Writer' },
+  { type: 'calc', icon: 'grid', color: '#10b981', label: 'Calc' },
+  { type: 'impress', icon: 'easel', color: '#f59e0b', label: 'Impress' },
+  { type: 'pdf', icon: 'document', color: '#ef4444', label: 'PDF' },
+  { type: 'templates', icon: 'albums', color: '#a855f7', label: 'Modèles' },
+];
+
+export default function FloatingSpeedDial({ isVisible, onNewDocument, onOpenTemplates }: Props) {
+  const [expanded, setExpanded] = useState(false);
 
   if (!isVisible) return null;
 
-  const actions = [
-    {
-      label: 'Modèles Pro',
-      icon: Sparkles,
-      color: 'bg-gradient-to-r from-amber-500 to-orange-500 text-white',
-      onClick: () => {
-        setIsOpen(false);
-        onOpenTemplates();
-      },
-    },
-    {
-      label: 'PDF & Signature',
-      icon: FileCheck,
-      color: 'bg-rose-600 text-white',
-      onClick: () => {
-        setIsOpen(false);
-        onNewDocument('pdf');
-      },
-    },
-    {
-      label: 'Présentation Impress',
-      icon: Presentation,
-      color: 'bg-amber-600 text-white',
-      onClick: () => {
-        setIsOpen(false);
-        onNewDocument('impress');
-      },
-    },
-    {
-      label: 'Tableur Calc',
-      icon: Table2,
-      color: 'bg-emerald-600 text-white',
-      onClick: () => {
-        setIsOpen(false);
-        onNewDocument('calc');
-      },
-    },
-    {
-      label: 'Document Writer',
-      icon: FileText,
-      color: 'bg-blue-600 text-white',
-      onClick: () => {
-        setIsOpen(false);
-        onNewDocument('writer');
-      },
-    },
-  ];
+  const handlePress = (a: typeof ACTIONS[number]) => {
+    setExpanded(false);
+    if (a.type === 'templates') {
+      onOpenTemplates();
+    } else {
+      onNewDocument(a.type as DocumentType);
+    }
+  };
 
   return (
     <>
-      {/* Backdrop */}
-      {isOpen && (
-        <div
-          onClick={() => setIsOpen(false)}
-          className="absolute inset-0 bg-slate-950/60 backdrop-blur-xs z-40 transition-opacity"
+      {expanded && (
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          onPress={() => setExpanded(false)}
+          activeOpacity={1}
         />
       )}
-
-      {/* Speed Dial Menu Container */}
-      <div className="absolute bottom-20 right-4 z-50 flex flex-col items-end gap-2.5">
-        {isOpen && (
-          <div className="flex flex-col items-end gap-2 mb-1 animate-in fade-in slide-in-from-bottom-5 duration-200">
-            {actions.map((act, index) => {
-              const Icon = act.icon;
-              return (
-                <div key={index} className="flex items-center gap-2">
-                  <span className="bg-slate-800 text-slate-200 text-xs px-2.5 py-1 rounded-md shadow-md font-medium border border-slate-700/60">
-                    {act.label}
-                  </span>
-                  <button
-                    onClick={act.onClick}
-                    className={`w-11 h-11 rounded-full flex items-center justify-center shadow-lg active:scale-95 transition-all ${act.color}`}
-                  >
-                    <Icon className="w-5 h-5" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+      <View pointerEvents="box-none" style={styles.container}>
+        {expanded && (
+          <View style={styles.actions}>
+            {ACTIONS.map((a) => (
+              <Pressable
+                key={a.type}
+                onPress={() => handlePress(a)}
+                style={({ pressed }) => [
+                  styles.actionBtn,
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <View style={[styles.iconCircle, { backgroundColor: a.color }]}>
+                  <Ionicons name={a.icon} size={22} color="#fff" />
+                </View>
+                <Text style={styles.actionLabel}>{a.label}</Text>
+              </Pressable>
+            ))}
+          </View>
         )}
-
-        {/* Main Floating Action Button */}
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-xl active:scale-95 transition-all duration-300 ${
-            isOpen
-              ? 'bg-slate-700 text-white rotate-45'
-              : 'bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white hover:shadow-indigo-500/25 shadow-indigo-600/30'
-          }`}
-          title="Créer un nouveau document"
+        <Pressable
+          onPress={() => setExpanded(!expanded)}
+          style={({ pressed }) => [styles.fab, pressed && { opacity: 0.9 }]}
         >
-          {isOpen ? <X className="w-7 h-7" /> : <Plus className="w-7 h-7" />}
-        </button>
-      </div>
+          <Ionicons name={expanded ? 'close' : 'add'} size={28} color="#fff" />
+        </Pressable>
+      </View>
     </>
   );
-};
+}
+
+const styles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    alignItems: 'flex-end',
+  },
+  fab: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#a855f7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+  },
+  actions: {
+    marginBottom: 12,
+    gap: 10,
+    alignItems: 'flex-end',
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  actionLabel: {
+    color: '#f1f5f9',
+    fontSize: 13,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+});

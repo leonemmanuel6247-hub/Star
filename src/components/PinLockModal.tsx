@@ -1,188 +1,225 @@
-import React, { useState } from 'react';
-import { Lock, Delete, Fingerprint, KeyRound, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  Modal,
+  SafeAreaView,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
-interface PinLockModalProps {
-  isOpen: boolean;
+interface Props {
   mode: 'unlock' | 'setup';
   currentPin: string;
   onSuccess: (newPin?: string) => void;
-  onCancel?: () => void;
+  onCancel: () => void;
 }
 
-export const PinLockModal: React.FC<PinLockModalProps> = ({
-  isOpen,
-  mode,
-  currentPin,
-  onSuccess,
-  onCancel,
-}) => {
-  const [pin, setPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
-  const [step, setStep] = useState<'enter' | 'confirm'>('enter');
+const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'back'];
+
+export default function PinLockModal({ mode, currentPin, onSuccess, onCancel }: Props) {
+  const [entry, setEntry] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
+  const [stage, setStage] = useState<'first' | 'confirm'>('first');
 
-  if (!isOpen) return null;
-
-  const handleDigit = (digit: string) => {
-    if (error) setError('');
-
-    if (mode === 'unlock') {
-      if (pin.length < 4) {
-        const next = pin + digit;
-        setPin(next);
-        if (next.length === 4) {
-          if (next === currentPin) {
-            setTimeout(() => {
-              setPin('');
-              onSuccess();
-            }, 150);
-          } else {
-            setTimeout(() => {
-              setError('Code PIN incorrect. Réessayez.');
-              setPin('');
-            }, 200);
-          }
-        }
-      }
-    } else {
-      // setup mode
-      if (step === 'enter') {
-        const next = pin + digit;
-        setPin(next);
-        if (next.length === 4) {
-          setTimeout(() => {
-            setStep('confirm');
-          }, 200);
-        }
+  useEffect(() => {
+    if (mode === 'unlock' && entry.length === 4) {
+      if (entry === currentPin) {
+        onSuccess();
       } else {
-        const next = confirmPin + digit;
-        setConfirmPin(next);
-        if (next.length === 4) {
-          if (next === pin) {
-            setTimeout(() => {
-              onSuccess(pin);
-            }, 200);
-          } else {
-            setTimeout(() => {
-              setError('Les codes ne correspondent pas.');
-              setConfirmPin('');
-            }, 200);
-          }
-        }
+        setError('Code PIN incorrect');
+        setTimeout(() => {
+          setEntry('');
+          setError('');
+        }, 800);
       }
+    } else if (mode === 'setup' && entry.length === 4 && stage === 'first') {
+      setStage('confirm');
+    } else if (mode === 'setup' && stage === 'confirm' && confirm.length === 4) {
+      if (entry === confirm) {
+        onSuccess(entry);
+      } else {
+        setError('Les codes ne correspondent pas');
+        setTimeout(() => {
+          setEntry('');
+          setConfirm('');
+          setStage('first');
+          setError('');
+        }, 800);
+      }
+    }
+  }, [entry, confirm, stage, mode, currentPin, onSuccess]);
+
+  const handleKey = (k: string) => {
+    setError('');
+    if (mode === 'setup' && stage === 'confirm') {
+      if (confirm.length < 4) setConfirm(confirm + k);
+    } else {
+      if (entry.length < 4) setEntry(entry + k);
     }
   };
 
   const handleDelete = () => {
-    setError('');
-    if (mode === 'unlock') {
-      setPin(pin.slice(0, -1));
+    if (mode === 'setup' && stage === 'confirm') {
+      setConfirm(confirm.slice(0, -1));
     } else {
-      if (step === 'enter') {
-        setPin(pin.slice(0, -1));
-      } else {
-        setConfirmPin(confirmPin.slice(0, -1));
-      }
+      setEntry(entry.slice(0, -1));
     }
   };
 
-  const handleBiometric = () => {
-    // Biometric instant pass
-    onSuccess();
-  };
-
-  const currentDisplayLength = mode === 'unlock' ? pin.length : step === 'enter' ? pin.length : confirmPin.length;
+  const display = mode === 'setup' && stage === 'confirm' ? confirm : entry;
 
   return (
-    <div className="absolute inset-0 z-50 bg-slate-950 flex flex-col items-center justify-between p-6 select-none animate-in fade-in duration-200">
-      <div className="w-full flex justify-between items-center text-slate-400">
-        <span className="text-xs font-mono">StarOffice Vault</span>
-        {onCancel && mode === 'setup' && (
-          <button
-            onClick={onCancel}
-            className="text-xs text-slate-400 hover:text-white px-2 py-1"
-          >
-            Annuler
-          </button>
-        )}
-      </div>
+    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.card}>
+          <View style={styles.iconWrap}>
+            <Ionicons name="lock-closed" size={28} color="#a855f7" />
+          </View>
+          <Text style={styles.title}>
+            {mode === 'unlock' ? 'Déverrouiller' : 'Configurer le PIN'}
+          </Text>
+          <Text style={styles.subtitle}>
+            {mode === 'unlock'
+              ? 'Saisissez votre code à 4 chiffres'
+              : stage === 'first'
+              ? 'Choisissez un code à 4 chiffres'
+              : 'Confirmez votre code'}
+          </Text>
 
-      <div className="flex flex-col items-center text-center max-w-xs">
-        <div className="w-16 h-16 rounded-full bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 mb-4 shadow-lg">
-          {mode === 'unlock' ? <Lock className="w-8 h-8" /> : <KeyRound className="w-8 h-8" />}
-        </div>
+          <View style={styles.dots}>
+            {[0, 1, 2, 3].map((i) => (
+              <View
+                key={i}
+                style={[styles.dot, i < display.length && styles.dotActive]}
+              />
+            ))}
+          </View>
 
-        <h2 className="text-xl font-bold text-white mb-1">
-          {mode === 'unlock'
-            ? 'StarOffice est verrouillé'
-            : step === 'enter'
-            ? 'Définir un code PIN'
-            : 'Confirmer le code PIN'}
-        </h2>
-        <p className="text-xs text-slate-400 mb-6">
-          {mode === 'unlock'
-            ? 'Entrez votre code à 4 chiffres ou utilisez la biométrie'
-            : step === 'enter'
-            ? 'Choisissez 4 chiffres pour protéger vos documents'
-            : 'Saisissez de nouveau votre code PIN'}
-        </p>
+          {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        {/* PIN Dots */}
-        <div className="flex gap-4 mb-2">
-          {[0, 1, 2, 3].map((idx) => (
-            <div
-              key={idx}
-              className={`w-4 h-4 rounded-full transition-all duration-200 ${
-                idx < currentDisplayLength
-                  ? 'bg-indigo-500 scale-110 shadow-md shadow-indigo-500/50'
-                  : 'border-2 border-slate-600 bg-transparent'
-              }`}
-            />
-          ))}
-        </div>
+          <View style={styles.keypad}>
+            {KEYS.map((k, idx) => {
+              if (k === '') return <View key={idx} style={styles.key} />;
+              if (k === 'back') {
+                return (
+                  <Pressable key={idx} onPress={handleDelete} style={styles.key}>
+                    <Ionicons name="backspace-outline" size={24} color="#f1f5f9" />
+                  </Pressable>
+                );
+              }
+              return (
+                <Pressable
+                  key={idx}
+                  onPress={() => handleKey(k)}
+                  style={({ pressed }) => [
+                    styles.key,
+                    pressed && { backgroundColor: '#334155' },
+                  ]}
+                >
+                  <Text style={styles.keyLabel}>{k}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
-        {error && <p className="text-xs text-rose-400 font-medium mt-2 animate-bounce">{error}</p>}
-      </div>
-
-      {/* Keypad */}
-      <div className="w-full max-w-[280px] grid grid-cols-3 gap-3 mb-4">
-        {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
-          <button
-            key={d}
-            onClick={() => handleDigit(d)}
-            className="h-16 rounded-full bg-slate-800/80 hover:bg-slate-700 active:bg-indigo-600 text-white font-semibold text-2xl flex items-center justify-center transition-all shadow-md active:scale-95"
-          >
-            {d}
-          </button>
-        ))}
-
-        {mode === 'unlock' ? (
-          <button
-            onClick={handleBiometric}
-            className="h-16 rounded-full bg-slate-800/40 hover:bg-slate-700/60 active:bg-emerald-600/30 text-emerald-400 flex items-center justify-center transition-all"
-            title="Capteur d'empreinte digitale"
-          >
-            <Fingerprint className="w-7 h-7" />
-          </button>
-        ) : (
-          <div />
-        )}
-
-        <button
-          onClick={() => handleDigit('0')}
-          className="h-16 rounded-full bg-slate-800/80 hover:bg-slate-700 active:bg-indigo-600 text-white font-semibold text-2xl flex items-center justify-center transition-all shadow-md active:scale-95"
-        >
-          0
-        </button>
-
-        <button
-          onClick={handleDelete}
-          className="h-16 rounded-full bg-slate-800/40 hover:bg-slate-700/60 active:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-all"
-          title="Effacer"
-        >
-          <Delete className="w-6 h-6" />
-        </button>
-      </div>
-    </div>
+          {mode === 'setup' && (
+            <Pressable onPress={onCancel} style={styles.cancelBtn}>
+              <Text style={styles.cancelText}>Annuler</Text>
+            </Pressable>
+          )}
+        </View>
+      </SafeAreaView>
+    </Modal>
   );
-};
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#1e293b',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  iconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(168, 85, 247, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  title: {
+    color: '#f1f5f9',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  subtitle: {
+    color: '#94a3b8',
+    fontSize: 12,
+    marginTop: 4,
+    marginBottom: 18,
+  },
+  dots: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  dot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: '#475569',
+  },
+  dotActive: {
+    backgroundColor: '#a855f7',
+    borderColor: '#a855f7',
+  },
+  error: {
+    color: '#ef4444',
+    fontSize: 12,
+    marginBottom: 12,
+  },
+  keypad: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  key: {
+    width: 64,
+    height: 56,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  keyLabel: {
+    color: '#f1f5f9',
+    fontSize: 22,
+    fontWeight: '600',
+  },
+  cancelBtn: {
+    marginTop: 16,
+    padding: 8,
+  },
+  cancelText: {
+    color: '#94a3b8',
+    fontSize: 13,
+  },
+});
