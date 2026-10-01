@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-android:
-    name: Build APK (Debug + Release)
+    name: Build APK
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -25,7 +25,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: 📦 Setup Java 17
         uses: actions/setup-java@v4
@@ -36,24 +35,26 @@ jobs:
       - name: 🤖 Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125'
+          packages: 'platforms;android-34 build-tools;34.0.0'
 
       - name: 📚 Install dependencies
-        run: |
-          npm install --legacy-peer-deps
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
-      - name: 🔧 Configure Gradle for native build
-        run: |
-          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g" >> gradle.properties || true
-          echo "org.gradle.daemon=false" >> gradle.properties || true
-          echo "org.gradle.parallel=true" >> gradle.properties || true
-          echo "android.useAndroidX=true" >> gradle.properties || true
-        working-directory: ${{ github.workspace }}
+      - name: 🔎 Verify Expo CLI
+        run: npx expo --version
 
       - name: 🏗️ Expo Prebuild (generate native Android project)
+        run: npx expo prebuild --platform android --no-install --clean
+
+      - name: 🔧 Configure Gradle
         run: |
-          npx expo install expo-system-ui @expo/metro-runtime -- --save || true
-          npx expo prebuild --platform android --no-install --clean
+          {
+            echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+            echo "org.gradle.daemon=false"
+            echo "org.gradle.parallel=true"
+            echo "android.useAndroidX=true"
+          } > android/gradle.properties
+          cat android/gradle.properties
 
       - name: 📝 Create debug signing keystore if missing
         run: |
@@ -68,57 +69,47 @@ jobs:
       - name: 🔨 Build Debug APK
         run: |
           cd android
+          chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: 🔨 Build Release APK
+      - name: 📤 Collect APK
         run: |
-          cd android
-          ./gradlew assembleRelease --no-daemon --stacktrace || true
-
-      - name: 📤 Find APK files
-        id: find_apks
-        run: |
-          echo "Looking for APK files..."
-          find android -name "*.apk" -type f
           mkdir -p artifacts
-          # Copy debug APK
           DEBUG_APK=$(find android/app/build/outputs/apk/debug -name "*.apk" -type f | head -n 1)
           if [ -n "$DEBUG_APK" ]; then
             cp "$DEBUG_APK" artifacts/StarOffice-debug.apk
             echo "✅ Debug APK copied: $DEBUG_APK"
+            ls -la artifacts/
+          else
+            echo "❌ No APK found"
+            exit 1
           fi
-          # Copy release APK
-          RELEASE_APK=$(find android/app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
-          if [ -n "$RELEASE_APK" ]; then
-            cp "$RELEASE_APK" artifacts/StarOffice-release.apk
-            echo "✅ Release APK copied: $RELEASE_APK"
-          fi
-          ls -la artifacts/
 
-      - name: 🚀 Upload APK artifacts
+      - name: 🚀 Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: StarOffice-APKs
+          name: StarOffice-APK
           path: artifacts/*.apk
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: 📊 Build summary
         if: always()
         run: |
-          echo "## 📦 Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if ls artifacts/*.apk 1>/dev/null 2>&1; then
-            echo "### ✅ APKs générés avec succès" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            for f in artifacts/*.apk; do
-              SIZE=$(du -h "$f" | cut -f1)
-              NAME=$(basename "$f")
-              echo "- \`${NAME}\` — ${SIZE}" >> $GITHUB_STEP_SUMMARY
-            done
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "> Téléchargez les artifacts depuis la section *Artifacts* en haut à droite de la run." >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### ❌ Aucun APK généré" >> $GITHUB_STEP_SUMMARY
-            echo "Vérifiez les logs ci-dessus." >> $GITHUB_STEP_SUMMARY
-          fi
+          {
+            echo "## 📦 Build Summary"
+            echo ""
+            if ls artifacts/*.apk 1>/dev/null 2>&1; then
+              echo "### ✅ APK généré avec succès"
+              echo ""
+              for f in artifacts/*.apk; do
+                SIZE=$(du -h "$f" | cut -f1)
+                NAME=$(basename "$f")
+                echo "- \`${NAME}\` — ${SIZE}"
+              done
+              echo ""
+              echo "> Téléchargez l'artifact depuis la section *Artifacts* en haut à droite de cette run."
+            else
+              echo "### ❌ Aucun APK généré — vérifiez les logs ci-dessus."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
