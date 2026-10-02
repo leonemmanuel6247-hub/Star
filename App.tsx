@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView, View, Text, Alert } from 'react-native';
+import { SafeAreaView, View, Text, Alert, useWindowDimensions } from 'react-native';
 import { OfficeFile, DocumentType, AppSettings } from './src/types/office';
 import {
   loadFiles,

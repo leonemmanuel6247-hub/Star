@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,10 +9,10 @@ import {
   Modal,
   SafeAreaView,
   Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { OfficeFile } from '../../types/office';
-import { useOrientation } from '../../utils/useOrientation';
 
 interface Props {
   file: OfficeFile;
@@ -22,33 +22,26 @@ interface Props {
 }
 
 const RIBBON_TABS = [
-  { id: 'file', label: 'Fichier', icon: 'file-document-outline' as const },
+  { id: 'file', label: 'Fichier', icon: 'file-document' as const },
   { id: 'home', label: 'Accueil', icon: 'home' as const },
   { id: 'insert', label: 'Insertion', icon: 'plus' as const },
   { id: 'design', label: 'Conception', icon: 'palette' as const },
-  { id: 'layout', label: 'Mise en page', icon: 'view-grid-outline' as const },
-  { id: 'references', label: 'Références', icon: 'book-open-outline' as const },
-  { id: 'mailings', label: 'Publipostage', icon: 'email-outline' as const },
-  { id: 'review', label: 'Révision', icon: 'spellcheck' as const },
-  { id: 'view', label: 'Affichage', icon: 'eye-outline' as const },
+  { id: 'layout', label: 'Mise en page', icon: 'page-layout-body' as const },
+  { id: 'references', label: 'Références', icon: 'book-open' as const },
+  { id: 'mailings', label: 'Publipostage', icon: 'email' as const },
+  { id: 'review', label: 'Révision', icon: 'spell-check' as const },
+  { id: 'view', label: 'Affichage', icon: 'eye' as const },
 ];
 
 const FONTS = ['Calibri', 'Arial', 'Times New Roman', 'Georgia', 'Verdana', 'Courier New'];
 const SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 48, 72];
 const TEXT_COLORS = ['#000000', '#e03131', '#2f9e44', '#1971c2', '#f08c00', '#9c36b5', '#1864ab', '#c2255c'];
 
-const BACKSTAGE_ITEMS = [
-  { icon: 'information-outline' as const, label: 'Informations' },
-  { icon: 'file-plus-outline' as const, label: 'Nouveau' },
-  { icon: 'folder-open-outline' as const, label: 'Ouvrir' },
-  { icon: 'content-save' as const, label: 'Enregistrer' },
-  { icon: 'printer' as const, label: 'Imprimer' },
-  { icon: 'share-outline' as const, label: 'Partager' },
-  { icon: 'download' as const, label: 'Exporter' },
-];
-
 export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNewDocument }: Props) {
-  const { isLandscape, isTablet, width } = useOrientation();
+  const dims = useWindowDimensions();
+  const isLandscape = dims.width > dims.height;
+  const isMobile = Math.min(dims.width, dims.height) < 600;
+
   const [activeTab, setActiveTab] = useState('home');
   const [zoom, setZoom] = useState(100);
   const [showRuler, setShowRuler] = useState(true);
@@ -56,9 +49,11 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
   const [font, setFont] = useState('Calibri');
   const [fontSize, setFontSize] = useState(11);
   const [textColor, setTextColor] = useState('#000000');
+  const [highlightColor, setHighlightColor] = useState('#ffff00');
   const [showFontMenu, setShowFontMenu] = useState(false);
   const [showSizeMenu, setShowSizeMenu] = useState(false);
   const [showColorMenu, setShowColorMenu] = useState(false);
+  const [showHighlightMenu, setShowHighlightMenu] = useState(false);
   const [text, setText] = useState<string>(
     String(file.content?.html || '').replace(/<[^>]+>/g, '\n').replace(/\n+/g, '\n').trim()
   );
@@ -73,30 +68,13 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
     onUpdateFile({ content: { html: `<p>${newText.split('\n').join('</p><p>')}</p>`, wordCount: wc } });
   };
 
-  const applyTag = (tag: string) => {
-    setText((prev) => `<${tag}>${prev}</${tag}>`);
+  const wrapText = (prefix: string, suffix: string) => {
+    setText((prev) => `${prefix}${prev}${suffix}`);
   };
 
-  const insertPageBreak = () => {
-    setText((prev) => `${prev}\n\n--- Saut de page ---\n\n`);
+  const insertAtEnd = (snippet: string) => {
+    setText((prev) => `${prev}${snippet}`);
   };
-
-  const insertTable = () => {
-    const rows = 3, cols = 3;
-    let table = '\n\n| ';
-    for (let c = 0; c < cols; c++) table += `Col ${c + 1} | `;
-    table += '\n|';
-    for (let c = 0; c < cols; c++) table += '---|';
-    for (let r = 0; r < rows; r++) {
-      table += '\n| ';
-      for (let c = 0; c < cols; c++) table += `  ${r}${c}  | `;
-    }
-    setText((prev) => prev + table + '\n\n');
-  };
-
-  // Landscape shows wider editor; portrait shows narrower page
-  const pageWidth = isLandscape ? (isTablet ? 800 : Math.min(width - 80, 600)) : (width - 32);
-  const compactRibbon = !isTablet && !isLandscape;
 
   return (
     <View style={[styles.container, isLandscape && styles.containerLandscape]}>
@@ -117,7 +95,7 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
         <Text style={styles.appName}> - StarOffice Writer</Text>
         <View style={{ flex: 1 }} />
         <Pressable style={styles.qaBtn} onPress={onNewDocument}>
-          <MaterialCommunityIcons name="file-plus-outline" size={16} color="#6366f1" />
+          <MaterialCommunityIcons name="file-plus" size={16} color="#6366f1" />
         </Pressable>
         <Pressable style={styles.qaBtn} onPress={onCloseDocument}>
           <MaterialCommunityIcons name="close" size={16} color="#64748b" />
@@ -131,11 +109,13 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
           return (
             <Pressable
               key={tab.id}
-              onPress={() => { if (tab.id === 'file') { setBackstageOpen(true); } else { setActiveTab(tab.id); } }}
+              onPress={() => tab.id === 'file' ? setBackstageOpen(true) : setActiveTab(tab.id)}
               style={[styles.tab, active && styles.tabActive]}
             >
               <MaterialCommunityIcons name={tab.icon} size={12} color={active ? '#a855f7' : '#64748b'} />
-              <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>
+              {(!isMobile || active) && (
+                <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>
+              )}
             </Pressable>
           );
         })}
@@ -166,20 +146,32 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
                 <Text style={{ fontSize: 11, color: '#1e293b' }}>{fontSize}</Text>
                 <MaterialCommunityIcons name="chevron-down" size={10} color="#64748b" />
               </Pressable>
-              <Pressable style={styles.ribbonBtn} onPress={() => applyTag('b')}>
+              <Pressable style={styles.ribbonBtn} onPress={() => wrapText('<b>', '</b>')}>
                 <MaterialCommunityIcons name="format-bold" size={14} color="#475569" />
               </Pressable>
-              <Pressable style={styles.ribbonBtn} onPress={() => applyTag('i')}>
+              <Pressable style={styles.ribbonBtn} onPress={() => wrapText('<i>', '</i>')}>
                 <MaterialCommunityIcons name="format-italic" size={14} color="#475569" />
               </Pressable>
-              <Pressable style={styles.ribbonBtn} onPress={() => applyTag('u')}>
+              <Pressable style={styles.ribbonBtn} onPress={() => wrapText('<u>', '</u>')}>
                 <MaterialCommunityIcons name="format-underline" size={14} color="#475569" />
               </Pressable>
-              <Pressable style={styles.ribbonBtn} onPress={() => applyTag('strike')}>
+              <Pressable style={styles.ribbonBtn} onPress={() => wrapText('<s>', '</s>')}>
                 <MaterialCommunityIcons name="format-strikethrough" size={14} color="#475569" />
+              </Pressable>
+              <Pressable style={styles.ribbonBtn} onPress={() => wrapText('<sub>', '</sub>')}>
+                <MaterialCommunityIcons name="format-subscript" size={14} color="#475569" />
+              </Pressable>
+              <Pressable style={styles.ribbonBtn} onPress={() => wrapText('<sup>', '</sup>')}>
+                <MaterialCommunityIcons name="format-superscript" size={14} color="#475569" />
               </Pressable>
               <Pressable style={styles.ribbonBtn} onPress={() => setShowColorMenu(!showColorMenu)}>
                 <MaterialCommunityIcons name="format-color-text" size={14} color="#a855f7" />
+              </Pressable>
+              <Pressable style={styles.ribbonBtn} onPress={() => setShowHighlightMenu(!showHighlightMenu)}>
+                <MaterialCommunityIcons name="format-color-highlight" size={14} color="#f59e0b" />
+              </Pressable>
+              <Pressable style={styles.ribbonBtn} onPress={() => setText('')}>
+                <MaterialCommunityIcons name="format-clear" size={14} color="#475569" />
               </Pressable>
             </View>
 
@@ -194,22 +186,51 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
                 <MaterialCommunityIcons name="format-align-right" size={14} color="#475569" />
               </Pressable>
               <Pressable style={styles.ribbonBtn} onPress={() => {}}>
+                <MaterialCommunityIcons name="format-align-justify" size={14} color="#475569" />
+              </Pressable>
+              <View style={styles.groupDivider} />
+              <Pressable style={styles.ribbonBtn} onPress={() => {}}>
                 <MaterialCommunityIcons name="format-list-bulleted" size={14} color="#475569" />
               </Pressable>
               <Pressable style={styles.ribbonBtn} onPress={() => {}}>
                 <MaterialCommunityIcons name="format-list-numbered" size={14} color="#475569" />
               </Pressable>
+              <Pressable style={styles.ribbonBtn} onPress={() => {}}>
+                <MaterialCommunityIcons name="format-quote-close" size={14} color="#475569" />
+              </Pressable>
+              <View style={styles.groupDivider} />
+              <Pressable style={styles.ribbonBtn} onPress={() => {}}>
+                <MaterialCommunityIcons name="format-indent-decrease" size={14} color="#475569" />
+              </Pressable>
+              <Pressable style={styles.ribbonBtn} onPress={() => {}}>
+                <MaterialCommunityIcons name="format-indent-increase" size={14} color="#475569" />
+              </Pressable>
             </View>
 
             <View style={styles.ribbonGroup}>
-              <Pressable style={styles.ribbonBtn} onPress={() => applyTag('h1')}>
-                <Text style={{ fontSize: 11, color: '#1e293b', fontWeight: 'bold' }}>H1</Text>
+              <Pressable style={styles.ribbonBtn} onPress={() => wrapText('<h1>', '</h1>')}>
+                <MaterialCommunityIcons name="format-header-1" size={14} color="#475569" />
               </Pressable>
-              <Pressable style={styles.ribbonBtn} onPress={() => applyTag('h2')}>
-                <Text style={{ fontSize: 11, color: '#1e293b', fontWeight: 'bold' }}>H2</Text>
+              <Pressable style={styles.ribbonBtn} onPress={() => wrapText('<h2>', '</h2>')}>
+                <MaterialCommunityIcons name="format-header-2" size={14} color="#475569" />
               </Pressable>
-              <Pressable style={styles.ribbonBtn} onPress={() => applyTag('h3')}>
-                <Text style={{ fontSize: 11, color: '#1e293b', fontWeight: 'bold' }}>H3</Text>
+              <Pressable style={styles.ribbonBtn} onPress={() => wrapText('<h3>', '</h3>')}>
+                <MaterialCommunityIcons name="format-header-3" size={14} color="#475569" />
+              </Pressable>
+              <Pressable style={styles.ribbonBtn} onPress={() => wrapText('<p>', '</p>')}>
+                <MaterialCommunityIcons name="format-paragraph" size={14} color="#475569" />
+              </Pressable>
+            </View>
+
+            <View style={styles.ribbonGroup}>
+              <Pressable style={styles.ribbonBtn} onPress={() => {}}>
+                <MaterialCommunityIcons name="magnify" size={14} color="#475569" />
+              </Pressable>
+              <Pressable style={styles.ribbonBtn} onPress={() => {}}>
+                <MaterialCommunityIcons name="find-replace" size={14} color="#475569" />
+              </Pressable>
+              <Pressable style={styles.ribbonBtn} onPress={() => {}}>
+                <MaterialCommunityIcons name="select-all" size={14} color="#475569" />
               </Pressable>
             </View>
           </>
@@ -218,11 +239,11 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
         {activeTab === 'insert' && (
           <>
             <View style={styles.ribbonGroup}>
-              <Pressable style={styles.ribbonBtn} onPress={insertPageBreak}>
+              <Pressable style={styles.ribbonBtn} onPress={() => insertAtEnd('\n\n--- Saut de page ---\n\n')}>
                 <MaterialCommunityIcons name="page-break" size={14} color="#475569" />
                 <Text style={styles.ribbonLabel}>Saut page</Text>
               </Pressable>
-              <Pressable style={styles.ribbonBtn} onPress={insertTable}>
+              <Pressable style={styles.ribbonBtn} onPress={() => insertAtEnd('\n| Col1 | Col2 |\n|---|---|\n|  |  |\n')}>
                 <MaterialCommunityIcons name="table" size={14} color="#475569" />
                 <Text style={styles.ribbonLabel}>Tableau</Text>
               </Pressable>
@@ -230,9 +251,27 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
                 <MaterialCommunityIcons name="image" size={14} color="#475569" />
                 <Text style={styles.ribbonLabel}>Image</Text>
               </Pressable>
-              <Pressable style={styles.ribbonBtn} onPress={() => {}}>
-                <MaterialCommunityIcons name="link-variant" size={14} color="#475569" />
+              <Pressable style={styles.ribbonBtn} onPress={() => insertAtEnd('<a href="#">Lien</a>')}>
+                <MaterialCommunityIcons name="link" size={14} color="#475569" />
                 <Text style={styles.ribbonLabel}>Lien</Text>
+              </Pressable>
+              <Pressable style={styles.ribbonBtn} onPress={() => insertAtEnd('\n<hr/>\n')}>
+                <MaterialCommunityIcons name="minus" size={14} color="#475569" />
+                <Text style={styles.ribbonLabel}>Ligne</Text>
+              </Pressable>
+            </View>
+            <View style={styles.ribbonGroup}>
+              <Pressable style={styles.ribbonBtn} onPress={() => wrapText('<h1>', '</h1>')}>
+                <MaterialCommunityIcons name="format-header-1" size={14} color="#475569" />
+                <Text style={styles.ribbonLabel}>Titre 1</Text>
+              </Pressable>
+              <Pressable style={styles.ribbonBtn} onPress={() => wrapText('<blockquote>', '</blockquote>')}>
+                <MaterialCommunityIcons name="comment-quote" size={14} color="#475569" />
+                <Text style={styles.ribbonLabel}>Citation</Text>
+              </Pressable>
+              <Pressable style={styles.ribbonBtn} onPress={() => insertAtEnd('<pre>code</pre>')}>
+                <MaterialCommunityIcons name="code-braces" size={14} color="#475569" />
+                <Text style={styles.ribbonLabel}>Code</Text>
               </Pressable>
             </View>
           </>
@@ -240,21 +279,21 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
 
         {activeTab === 'design' && (
           <View style={styles.ribbonGroup}>
-            <Pressable style={styles.ribbonBtn} onPress={() => {}}>
+            <Pressable style={styles.ribbonBtn} onPress={() => setFont('Georgia')}>
               <MaterialCommunityIcons name="palette" size={14} color="#475569" />
               <Text style={styles.ribbonLabel}>Thèmes</Text>
             </Pressable>
-            <Pressable style={styles.ribbonBtn} onPress={() => setFont('Georgia')}>
-              <MaterialCommunityIcons name="format-font" size={14} color="#475569" />
-              <Text style={styles.ribbonLabel}>Polices</Text>
-            </Pressable>
             <Pressable style={styles.ribbonBtn} onPress={() => setTextColor('#1e40af')}>
-              <MaterialCommunityIcons name="format-color-fill" size={14} color="#475569" />
-              <Text style={styles.ribbonLabel}>Couleur page</Text>
+              <MaterialCommunityIcons name="format-color-text" size={14} color="#475569" />
+              <Text style={styles.ribbonLabel}>Couleurs</Text>
             </Pressable>
             <Pressable style={styles.ribbonBtn} onPress={() => {}}>
               <MaterialCommunityIcons name="water" size={14} color="#475569" />
               <Text style={styles.ribbonLabel}>Filigrane</Text>
+            </Pressable>
+            <Pressable style={styles.ribbonBtn} onPress={() => {}}>
+              <MaterialCommunityIcons name="border-all" size={14} color="#475569" />
+              <Text style={styles.ribbonLabel}>Bordures</Text>
             </Pressable>
           </View>
         )}
@@ -266,15 +305,15 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
               <Text style={styles.ribbonLabel}>Marges</Text>
             </Pressable>
             <Pressable style={styles.ribbonBtn} onPress={() => {}}>
-              <MaterialCommunityIcons name="rectangle-portrait-outline" size={14} color="#475569" />
-              <Text style={styles.ribbonLabel}>Portrait</Text>
+              <MaterialCommunityIcons name="page-layout-sidebar-left" size={14} color="#475569" />
+              <Text style={styles.ribbonLabel}>Orientation</Text>
+            </Pressable>
+            <Pressable style={styles.ribbonBtn} onPress={() => insertAtEnd('\n\n--- Saut de page ---\n\n')}>
+              <MaterialCommunityIcons name="page-break" size={14} color="#475569" />
+              <Text style={styles.ribbonLabel}>Saut page</Text>
             </Pressable>
             <Pressable style={styles.ribbonBtn} onPress={() => {}}>
-              <MaterialCommunityIcons name="rectangle-landscape" size={14} color="#475569" />
-              <Text style={styles.ribbonLabel}>Paysage</Text>
-            </Pressable>
-            <Pressable style={styles.ribbonBtn} onPress={() => {}}>
-              <MaterialCommunityIcons name="view-column-outline" size={14} color="#475569" />
+              <MaterialCommunityIcons name="view-column" size={14} color="#475569" />
               <Text style={styles.ribbonLabel}>Colonnes</Text>
             </Pressable>
           </View>
@@ -282,16 +321,16 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
 
         {activeTab === 'references' && (
           <View style={styles.ribbonGroup}>
-            <Pressable style={styles.ribbonBtn} onPress={() => {}}>
-              <MaterialCommunityIcons name="format-list-text" size={14} color="#475569" />
-              <Text style={styles.ribbonLabel}>Table des matières</Text>
+            <Pressable style={styles.ribbonBtn} onPress={() => insertAtEnd('\n## Table des matières\n')}>
+              <MaterialCommunityIcons name="format-list-bulleted" size={14} color="#475569" />
+              <Text style={styles.ribbonLabel}>TDM</Text>
             </Pressable>
-            <Pressable style={styles.ribbonBtn} onPress={() => {}}>
+            <Pressable style={styles.ribbonBtn} onPress={() => insertAtEnd('<sup>1</sup>')}>
               <MaterialCommunityIcons name="numeric" size={14} color="#475569" />
-              <Text style={styles.ribbonLabel}>Note de bas de page</Text>
+              <Text style={styles.ribbonLabel}>Note bas</Text>
             </Pressable>
-            <Pressable style={styles.ribbonBtn} onPress={() => {}}>
-              <MaterialCommunityIcons name="format-quote" size={14} color="#475569" />
+            <Pressable style={styles.ribbonBtn} onPress={() => wrapText('<blockquote>', '</blockquote>')}>
+              <MaterialCommunityIcons name="comment-quote" size={14} color="#475569" />
               <Text style={styles.ribbonLabel}>Citation</Text>
             </Pressable>
           </View>
@@ -300,16 +339,16 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
         {activeTab === 'mailings' && (
           <View style={styles.ribbonGroup}>
             <Pressable style={styles.ribbonBtn} onPress={() => {}}>
-              <MaterialCommunityIcons name="email-multiple-outline" size={14} color="#475569" />
-              <Text style={styles.ribbonLabel}>Démarrer fusion</Text>
+              <MaterialCommunityIcons name="email-multiple" size={14} color="#475569" />
+              <Text style={styles.ribbonLabel}>Fusion</Text>
+            </Pressable>
+            <Pressable style={styles.ribbonBtn} onPress={() => insertAtEnd('{{NOM}}')}>
+              <MaterialCommunityIcons name="account" size={14} color="#475569" />
+              <Text style={styles.ribbonLabel}>Champ</Text>
             </Pressable>
             <Pressable style={styles.ribbonBtn} onPress={() => {}}>
-              <MaterialCommunityIcons name="account-group-outline" size={14} color="#475569" />
-              <Text style={styles.ribbonLabel}>Destinataires</Text>
-            </Pressable>
-            <Pressable style={styles.ribbonBtn} onPress={() => {}}>
-              <MaterialCommunityIcons name="code-braces" size={14} color="#475569" />
-              <Text style={styles.ribbonLabel}>Champ fusion</Text>
+              <MaterialCommunityIcons name="eye" size={14} color="#475569" />
+              <Text style={styles.ribbonLabel}>Aperçu</Text>
             </Pressable>
           </View>
         )}
@@ -317,7 +356,7 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
         {activeTab === 'review' && (
           <View style={styles.ribbonGroup}>
             <Pressable style={styles.ribbonBtn} onPress={() => {}}>
-              <MaterialCommunityIcons name="spellcheck" size={14} color="#475569" />
+              <MaterialCommunityIcons name="spell-check" size={14} color="#475569" />
               <Text style={styles.ribbonLabel}>Orthographe</Text>
             </Pressable>
             <Pressable style={styles.ribbonBtn} onPress={() => {}}>
@@ -325,12 +364,26 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
               <Text style={styles.ribbonLabel}>Langue</Text>
             </Pressable>
             <Pressable style={styles.ribbonBtn} onPress={() => {}}>
-              <MaterialCommunityIcons name="comment-text-outline" size={14} color="#475569" />
-              <Text style={styles.ribbonLabel}>Commentaire</Text>
+              <MaterialCommunityIcons name="counter" size={14} color="#475569" />
+              <Text style={styles.ribbonLabel}>Stats</Text>
             </Pressable>
+            <View style={styles.groupDivider} />
             <Pressable style={styles.ribbonBtn} onPress={() => {}}>
               <MaterialCommunityIcons name="history" size={14} color="#475569" />
               <Text style={styles.ribbonLabel}>Suivi</Text>
+            </Pressable>
+            <Pressable style={styles.ribbonBtn} onPress={() => {}}>
+              <MaterialCommunityIcons name="check-circle" size={14} color="#475569" />
+              <Text style={styles.ribbonLabel}>Accepter</Text>
+            </Pressable>
+            <Pressable style={styles.ribbonBtn} onPress={() => {}}>
+              <MaterialCommunityIcons name="undo" size={14} color="#475569" />
+              <Text style={styles.ribbonLabel}>Refuser</Text>
+            </Pressable>
+            <View style={styles.groupDivider} />
+            <Pressable style={styles.ribbonBtn} onPress={() => {}}>
+              <MaterialCommunityIcons name="comment-text" size={14} color="#475569" />
+              <Text style={styles.ribbonLabel}>Commentaire</Text>
             </Pressable>
           </View>
         )}
@@ -340,24 +393,30 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
             <Pressable style={styles.ribbonBtn} onPress={() => setZoom(Math.max(50, zoom - 10))}>
               <MaterialCommunityIcons name="magnify-minus" size={14} color="#475569" />
             </Pressable>
-            <Text style={{ fontSize: 11, color: '#1e293b', marginHorizontal: 4 }}>{zoom}%</Text>
+            <Text style={styles.zoomLabel}>{zoom}%</Text>
             <Pressable style={styles.ribbonBtn} onPress={() => setZoom(Math.min(200, zoom + 10))}>
               <MaterialCommunityIcons name="magnify-plus" size={14} color="#475569" />
             </Pressable>
-            <Pressable style={styles.ribbonBtn} onPress={() => { setShowRuler(!showRuler); }}>
-              <MaterialCommunityIcons name="ruler" size={14} color={showRuler ? '#a855f7' : '#475569'} />
+            <View style={styles.groupDivider} />
+            <Pressable style={styles.ribbonBtn} onPress={() => setShowRuler(!showRuler)}>
+              <MaterialCommunityIcons
+                name="ruler"
+                size={14}
+                color={showRuler ? '#a855f7' : '#475569'}
+              />
+              <Text style={styles.ribbonLabel}>Règle</Text>
             </Pressable>
             <Pressable style={styles.ribbonBtn} onPress={() => setZoom(100)}>
-              <MaterialCommunityIcons name="fullscreen" size={14} color="#475569" />
+              <MaterialCommunityIcons name="aspect-ratio" size={14} color="#475569" />
               <Text style={styles.ribbonLabel}>100%</Text>
             </Pressable>
           </View>
         )}
       </ScrollView>
 
-      {/* Font menu */}
+      {/* Font menu dropdown */}
       {showFontMenu && (
-        <View style={styles.dropdownMenu}>
+        <View style={styles.dropdown}>
           {FONTS.map((f) => (
             <Pressable key={f} style={styles.dropdownItem} onPress={() => { setFont(f); setShowFontMenu(false); }}>
               <Text style={{ fontFamily: f, fontSize: 12, color: '#1e293b' }}>{f}</Text>
@@ -366,9 +425,9 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
         </View>
       )}
 
-      {/* Size menu */}
+      {/* Size menu dropdown */}
       {showSizeMenu && (
-        <View style={styles.dropdownMenu}>
+        <View style={styles.dropdown}>
           {SIZES.map((s) => (
             <Pressable key={s} style={styles.dropdownItem} onPress={() => { setFontSize(s); setShowSizeMenu(false); }}>
               <Text style={{ fontSize: 12, color: '#1e293b' }}>{s}</Text>
@@ -379,7 +438,7 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
 
       {/* Color menu */}
       {showColorMenu && (
-        <View style={[styles.dropdownMenu, { flexDirection: 'row', flexWrap: 'wrap' }]}>
+        <View style={[styles.dropdown, { flexDirection: 'row', flexWrap: 'wrap', maxWidth: 220 }]}>
           {TEXT_COLORS.map((c) => (
             <Pressable key={c} onPress={() => { setTextColor(c); setShowColorMenu(false); }}
               style={[styles.colorSwatch, { backgroundColor: c }]} />
@@ -387,35 +446,28 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
         </View>
       )}
 
-      {/* Ruler */}
-      {showRuler && (
-        <View style={styles.ruler}>
-          <View style={styles.rulerMargin} />
-          <View style={styles.rulerMain}>
-            {Array.from({ length: 25 }).map((_, i) => (
-              <View key={i} style={[
-                styles.rulerMark,
-                { left: i * 12, height: i % 5 === 0 ? 10 : 5 }
-              ]} />
-            ))}
-          </View>
+      {/* Highlight menu */}
+      {showHighlightMenu && (
+        <View style={[styles.dropdown, { flexDirection: 'row', flexWrap: 'wrap', maxWidth: 220 }]}>
+          {['#ffff00', '#fb923c', '#a3e635', '#60a5fa', '#c084fc'].map((c) => (
+            <Pressable key={c} onPress={() => { setHighlightColor(c); setShowHighlightMenu(false); }}
+              style={[styles.colorSwatch, { backgroundColor: c }]} />
+          ))}
         </View>
       )}
 
-      {/* Editor area - wider in landscape */}
+      {/* Editor area - in landscape, allow horizontal split (ruler + page side by side conceptually) */}
       <ScrollView
-        style={styles.editorArea}
-        contentContainerStyle={[
-          styles.editorContent,
-          isLandscape && { paddingHorizontal: width > 1000 ? 64 : 24 }
-        ]}
-        horizontal={isLandscape && isTablet}
+        style={[styles.editorArea, isLandscape && styles.editorAreaLandscape]}
+        contentContainerStyle={{ padding: 16 }}
+        horizontal={isLandscape}
       >
         <View style={[styles.page, {
-          fontFamily: font,
+          fontFamily: font as any,
           fontSize: fontSize,
           color: textColor,
-          width: pageWidth,
+          width: isLandscape ? 'auto' : undefined,
+          minWidth: isLandscape ? 600 : undefined,
         }]}>
           <TextInput
             value={text}
@@ -423,7 +475,12 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
             multiline
             placeholder="Commencez à rédiger votre document..."
             placeholderTextColor="#94a3b8"
-            style={[styles.textArea, { fontFamily: font, fontSize: fontSize, color: textColor }]}
+            style={[styles.textArea, {
+              fontFamily: font as any,
+              fontSize: fontSize,
+              color: textColor,
+              lineHeight: fontSize * 1.5,
+            }]}
             textAlignVertical="top"
           />
         </View>
@@ -433,7 +490,7 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
       <View style={styles.statusBar}>
         <Text style={styles.statusText}>Page 1 sur {pages} · {wordCount} mots · {charCount} caractères</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={styles.statusText}>Français</Text>
+          <Text style={styles.statusText}>Français · {isLandscape ? 'Paysage' : 'Portrait'}</Text>
           <View style={{ width: 8 }} />
           <Pressable onPress={() => setZoom(Math.max(50, zoom - 10))}>
             <MaterialCommunityIcons name="magnify-minus" size={12} color="#64748b" />
@@ -447,23 +504,28 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
 
       {/* Backstage view */}
       <Modal visible={backstageOpen} animationType="slide" transparent={false} onRequestClose={() => setBackstageOpen(false)}>
-        <SafeAreaView style={{ flex: 1, flexDirection: isLandscape ? 'row' : 'column' }}>
+        <SafeAreaView style={{ flex: 1, flexDirection: 'row' }}>
           <View style={styles.backstageSidebar}>
             <Pressable style={styles.backstageBack} onPress={() => setBackstageOpen(false)}>
               <MaterialCommunityIcons name="close" size={14} color="#fff" />
               <Text style={styles.backstageBackText}>Retour</Text>
             </Pressable>
-            {BACKSTAGE_ITEMS.map((item, i) => (
+            {[
+              { icon: 'information' as const, label: 'Informations' },
+              { icon: 'file-plus' as const, label: 'Nouveau' },
+              { icon: 'folder-open' as const, label: 'Ouvrir' },
+              { icon: 'content-save' as const, label: 'Enregistrer' },
+              { icon: 'printer' as const, label: 'Imprimer' },
+              { icon: 'share' as const, label: 'Partager' },
+              { icon: 'download' as const, label: 'Exporter' },
+              { icon: 'close' as const, label: 'Fermer', action: onCloseDocument },
+            ].map((item, i) => (
               <Pressable key={i} style={styles.backstageItem}
-                onPress={() => setBackstageOpen(false)}>
+                onPress={() => { item.action?.(); setBackstageOpen(false); }}>
                 <MaterialCommunityIcons name={item.icon} size={16} color="#fff" />
                 <Text style={styles.backstageItemText}>{item.label}</Text>
               </Pressable>
             ))}
-            <Pressable style={styles.backstageItem} onPress={() => { setBackstageOpen(false); onCloseDocument(); }}>
-              <MaterialCommunityIcons name="close" size={16} color="#fff" />
-              <Text style={styles.backstageItemText}>Fermer</Text>
-            </Pressable>
           </View>
           <View style={styles.backstageContent}>
             <Text style={styles.backstageTitle}>{file.name}</Text>
@@ -473,9 +535,10 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
             <Text style={styles.backstageProp}>Taille : {Math.round(file.size / 1024)} Ko</Text>
             <Text style={styles.backstageProp}>Modifié : {new Date(file.updatedAt).toLocaleString('fr-FR')}</Text>
             <Text style={styles.backstageProp}>Mots : {wordCount}</Text>
+            <Text style={styles.backstageProp}>Caractères : {charCount}</Text>
             <Text style={styles.backstageProp}>Pages estimées : {pages}</Text>
             <Text style={styles.backstageProp}>Orientation : {isLandscape ? 'Paysage' : 'Portrait'}</Text>
-            <Text style={styles.backstageProp}>Type d'appareil : {isTablet ? 'Tablette' : 'Téléphone'}</Text>
+            <Text style={styles.backstageProp}>Écran : {Math.round(dims.width)}×{Math.round(dims.height)}</Text>
           </View>
         </SafeAreaView>
       </Modal>
@@ -485,7 +548,7 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f1f5f9' },
-  containerLandscape: { flexDirection: 'row' },
+  containerLandscape: { flexDirection: 'column' },
   titleBar: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 8, paddingVertical: 6,
@@ -505,10 +568,12 @@ const styles = StyleSheet.create({
   tabLabelActive: { color: '#a855f7', fontWeight: '600' },
   ribbon: { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#cbd5e1', paddingVertical: 6, paddingHorizontal: 4 },
   ribbonGroup: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 4, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
-  ribbonBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
-  ribbonLabel: { fontSize: 10, color: '#1e293b', marginLeft: 4 },
+  groupDivider: { width: 1, height: 16, backgroundColor: '#cbd5e1', marginHorizontal: 4 },
+  ribbonBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  ribbonLabel: { fontSize: 10, color: '#1e293b' },
+  zoomLabel: { fontSize: 11, color: '#1e293b', marginHorizontal: 4 },
   fontBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
-  dropdownMenu: {
+  dropdown: {
     position: 'absolute', top: 90, left: 100, zIndex: 100,
     backgroundColor: '#fff', borderRadius: 8, padding: 4,
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8,
@@ -516,19 +581,15 @@ const styles = StyleSheet.create({
   },
   dropdownItem: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 },
   colorSwatch: { width: 24, height: 24, borderRadius: 4, margin: 4 },
-  ruler: { height: 24, backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#cbd5e1', flexDirection: 'row' },
-  rulerMargin: { width: 40, borderRightWidth: 1, borderRightColor: '#cbd5e1' },
-  rulerMain: { flex: 1, position: 'relative' },
-  rulerMark: { position: 'absolute', top: 0, width: 1, backgroundColor: '#94a3b8' },
   editorArea: { flex: 1, backgroundColor: '#94a3b8' },
-  editorContent: { padding: 16, alignItems: 'center' },
+  editorAreaLandscape: { backgroundColor: '#94a3b8' },
   page: {
     backgroundColor: '#fff', minHeight: 600, padding: 40,
     marginHorizontal: 8, marginVertical: 8, borderRadius: 4,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8,
     elevation: 6,
   },
-  textArea: { flex: 1, minHeight: 500, textAlignVertical: 'top', lineHeight: 22 },
+  textArea: { flex: 1, minHeight: 500, textAlignVertical: 'top' },
   statusBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 12, paddingVertical: 4,
