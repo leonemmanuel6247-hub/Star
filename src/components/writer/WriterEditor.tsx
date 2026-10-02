@@ -463,19 +463,29 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
         </View>
       )}
 
-      {/* Editor area - in landscape, allow horizontal split (ruler + page side by side conceptually) */}
+      {/* Editor area - page sized dynamically based on screen orientation */}
       <ScrollView
-        style={[styles.editorArea, isLandscape && styles.editorAreaLandscape]}
-        contentContainerStyle={{ padding: 16 }}
-        horizontal={isLandscape}
+        style={styles.editorArea}
+        contentContainerStyle={{
+          flexGrow: 1,
+          alignItems: 'center',
+          padding: isLandscape ? 8 : 12,
+        }}
       >
-        <View style={[styles.page, {
-          fontFamily: font as any,
-          fontSize: fontSize,
-          color: textColor,
-          width: isLandscape ? 'auto' : undefined,
-          minWidth: isLandscape ? 600 : undefined,
-        }]}>
+        <View style={[
+          styles.page,
+          {
+            fontFamily: font as any,
+            fontSize: fontSize,
+            color: textColor,
+            // Make page fill the available width on small screens, capped on larger
+            width: isLandscape ? '85%' : '100%',
+            maxWidth: isLandscape ? 1100 : undefined,
+            minHeight: isLandscape ? '100%' : '85%',
+            flex: 1,
+            padding: isLandscape ? 32 : 24,
+          }
+        ]}>
           <TextInput
             value={text}
             onChangeText={handleTextChange}
@@ -568,16 +578,16 @@ const styles = StyleSheet.create({
   tabsBar: { backgroundColor: '#f1f5f9', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
   tab: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 12, paddingVertical: 8,
+    paddingHorizontal: 16, paddingVertical: 10,
   },
   tabActive: { borderBottomWidth: 2, borderBottomColor: '#a855f7', backgroundColor: '#fff' },
-  tabLabel: { fontSize: 12, fontWeight: '500', color: '#475569' },
+  tabLabel: { fontSize: 13, fontWeight: '500', color: '#475569' },
   tabLabelActive: { color: '#a855f7', fontWeight: '600' },
   ribbon: { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#cbd5e1', paddingVertical: 6, paddingHorizontal: 4 },
   ribbonGroup: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 4, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
   groupDivider: { width: 1, height: 16, backgroundColor: '#cbd5e1', marginHorizontal: 4 },
-  ribbonBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  ribbonLabel: { fontSize: 10, color: '#1e293b' },
+  ribbonBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 4, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  ribbonLabel: { fontSize: 11, color: '#1e293b' },
   zoomLabel: { fontSize: 11, color: '#1e293b', marginHorizontal: 4 },
   fontBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
   dropdown: {
@@ -589,14 +599,17 @@ const styles = StyleSheet.create({
   dropdownItem: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 },
   colorSwatch: { width: 24, height: 24, borderRadius: 4, margin: 4 },
   editorArea: { flex: 1, backgroundColor: '#94a3b8' },
-  editorAreaLandscape: { backgroundColor: '#94a3b8' },
   page: {
-    backgroundColor: '#fff', minHeight: 600, padding: 40,
-    marginHorizontal: 8, marginVertical: 8, borderRadius: 4,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8,
+    backgroundColor: '#fff',
+    minHeight: 500,
+    borderRadius: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
     elevation: 6,
   },
-  textArea: { flex: 1, minHeight: 500, textAlignVertical: 'top' },
+  textArea: { flex: 1, minHeight: 480, textAlignVertical: 'top' },
   statusBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 12, paddingVertical: 4,
