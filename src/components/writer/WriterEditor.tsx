@@ -236,7 +236,7 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
             <Pressable style={styles.ribbonBtn} onPress={() => setZoom(Math.min(200, zoom + 10))}>
               <Ionicons name="add-circle" size={14} color="#475569" />
             </Pressable>
-            <Pressable style={styles.ribbonBtn} onPress={() => setShowRuler(!showRuler)}>
+            <Pressable style={styles.ribbonBtn} onPress={() => { setShowRuler(!showRuler); }}>
               <Ionicons name="ruler" size={14} color={showRuler ? '#a855f7' : '#475569"} />
             </Pressable>
           </View>
