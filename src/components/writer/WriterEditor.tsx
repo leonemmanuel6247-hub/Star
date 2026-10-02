@@ -55,16 +55,23 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
   const [showColorMenu, setShowColorMenu] = useState(false);
   const [showHighlightMenu, setShowHighlightMenu] = useState(false);
   const [text, setText] = useState<string>(
-    String(file.content?.html || '').replace(/<[^>]+>/g, '\n').replace(/\n+/g, '\n').trim()
+    // Strip HTML tags AND remove the legacy placeholder text so the editor starts truly empty
+    String(file.content?.html || '')
+      .replace(/<[^>]+>/g, '\n')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\n+/g, '\n')
+      .replace(/^Commencez à rédiger votre texte ici\.\.\.$/, '')
+      .replace(/^Commencez à rédiger votre document\.\.\.$/, '')
+      .trim()
   );
 
-  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const wordCount = text.trim() ? text.split(/\s+/).filter(Boolean).length : 0;
   const charCount = text.length;
   const pages = Math.max(1, Math.ceil(wordCount / 250));
 
   const handleTextChange = (newText: string) => {
     setText(newText);
-    const wc = newText.split(/\s+/).filter(Boolean).length;
+    const wc = newText.trim() ? newText.split(/\s+/).filter(Boolean).length : 0;
     onUpdateFile({ content: { html: `<p>${newText.split('\n').join('</p><p>')}</p>`, wordCount: wc } });
   };
 

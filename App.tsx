@@ -92,12 +92,17 @@ export default function App() {
 
   const handleNewFile = useCallback(
     (type: DocumentType) => {
-      let name = 'Nouveau_Document.docx';
+      // Generate unique name with date/time suffix to avoid duplicates
+      const now = new Date();
+      const stamp = `${now.getHours()}h${String(now.getMinutes()).padStart(2, '0')}`;
+      const dateStr = `${now.getDate()}_${now.getMonth() + 1}`;
+
+      let name = `Document_${dateStr}_${stamp}.docx`;
       let ext = '.docx';
-      let content: any = { html: '<p>Commencez à rédiger votre texte ici...</p>', wordCount: 7 };
+      let content: any = { html: '<p></p>', wordCount: 0 };
 
       if (type === 'calc') {
-        name = 'Nouveau_Classeur.xlsx';
+        name = `Classeur_${dateStr}_${stamp}.xlsx`;
         ext = '.xlsx';
         content = {
           sheets: [
@@ -108,22 +113,19 @@ export default function App() {
               colCount: 8,
               frozenRows: 1,
               frozenCols: 0,
-              data: {
-                A1: { value: 'Désignation', bold: true },
-                B1: { value: 'Montant (€)', bold: true },
-              },
+              data: {},
             },
           ],
         };
       } else if (type === 'impress') {
-        name = 'Nouvelle_Presentation.pptx';
+        name = `Presentation_${dateStr}_${stamp}.pptx`;
         ext = '.pptx';
         content = {
           slides: [
             {
               id: 's-1',
-              title: 'Titre de la présentation',
-              subtitle: 'Sous-titre',
+              title: '',
+              subtitle: '',
               background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
               transition: 'fade',
               notes: '',
@@ -132,7 +134,7 @@ export default function App() {
           ],
         };
       } else if (type === 'pdf') {
-        name = 'Formulaire_Document.pdf';
+        name = `Formulaire_${dateStr}_${stamp}.pdf`;
         ext = '.pdf';
         content = {
           title: 'Nouveau Formulaire StarOffice',
