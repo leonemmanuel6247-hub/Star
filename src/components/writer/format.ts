@@ -705,7 +705,7 @@ export function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function inlineToHtml(text: string): string {
+function inlineToHtml(text: string, highlight?: string): string {
   return parseInline(text)
     .map((s) => {
       let t = escapeHtml(s.text);
@@ -716,9 +716,9 @@ function inlineToHtml(text: string): string {
       if (s.strike) t = `<s>${t}</s>`;
       if (s.sup) t = `<sup>${t}</sup>`;
       if (s.sub) t = `<sub>${t}</sub>`;
-      if (s.highlight) t = `<mark>${t}</mark>`;
+      if (s.highlight) t = highlight ? `<mark style="background:${highlight}">${t}</mark>` : `<mark>${t}</mark>`;
       if (s.field) t = `<span style="background:#fef9c3;border:1px solid #eab308;border-radius:3px;padding:0 4px">${t}</span>`;
-      if (s.link) t = `<a href="${escapeHtml(s.link)}">${t}</a>`;
+      if (s.link) t = `<a href="${escapeHtml(s.link)}" style="color:#2b579a;text-decoration:underline">${t}</a>`;
       return t;
     })
     .join('');
@@ -735,6 +735,8 @@ export interface PrintOptions {
   footer?: string;
   pageNumbers?: boolean;
   columns?: number;
+  highlight?: string;
+  fontFaceCss?: string;
 }
 
 export function buildPrintHtml(o: PrintOptions): string {
@@ -744,20 +746,20 @@ export function buildPrintHtml(o: PrintOptions): string {
     .map((b) => {
       switch (b.kind) {
         case 'heading':
-          return `<h${b.level} style="color:#1e293b;margin:14px 0 6px">${inlineToHtml(b.text)}</h${b.level}>`;
+          return `<h${b.level} style="color:#1e293b;margin:14px 0 6px">${inlineToHtml(b.text, o.highlight)}</h${b.level}>`;
         case 'bullet':
-          return `<ul>${b.items.map((it) => `<li>${inlineToHtml(it)}</li>`).join('')}</ul>`;
+          return `<ul>${b.items.map((it) => `<li>${inlineToHtml(it, o.highlight)}</li>`).join('')}</ul>`;
         case 'number':
-          return `<ol>${b.items.map((it) => `<li>${inlineToHtml(it)}</li>`).join('')}</ol>`;
+          return `<ol>${b.items.map((it) => `<li>${inlineToHtml(it, o.highlight)}</li>`).join('')}</ol>`;
         case 'quote':
-          return `<blockquote style="border-left:3px solid #2b579a;margin:8px 0;padding:4px 12px;color:#475569">${inlineToHtml(b.text)}</blockquote>`;
+          return `<blockquote style="border-left:3px solid #2b579a;margin:8px 0;padding:4px 12px;color:#475569">${inlineToHtml(b.text, o.highlight)}</blockquote>`;
         case 'textbox':
-          return `<div style="border:1px solid #94a3b8;border-radius:6px;padding:10px;margin:8px 0;background:#f8fafc">${inlineToHtml(b.text)}</div>`;
+          return `<div style="border:1px solid #94a3b8;border-radius:6px;padding:10px;margin:8px 0;background:#f8fafc">${inlineToHtml(b.text, o.highlight)}</div>`;
         case 'table': {
           const rows = b.rows
             .map(
               (r, ri) =>
-                `<tr>${r.map((c) => `<td style="border:1px solid #94a3b8;padding:6px 10px;${ri === 0 ? 'background:#e2e8f0;font-weight:bold;' : ''}">${inlineToHtml(c)}</td>`).join('')}</tr>`
+                `<tr>${r.map((c) => `<td style="border:1px solid #94a3b8;padding:6px 10px;${ri === 0 ? 'background:#e2e8f0;font-weight:bold;' : ''}">${inlineToHtml(c, o.highlight)}</td>`).join('')}</tr>`
             )
             .join('');
           return `<table style="border-collapse:collapse;margin:8px 0" cellspacing="0" cellpadding="0">${rows}</table>`;
@@ -769,7 +771,7 @@ export function buildPrintHtml(o: PrintOptions): string {
         case 'sectionbreak':
           return '<div style="border-top:2px solid #2b579a;margin:16px 0"></div>';
         case 'footnote':
-          return `<p style="font-size:0.85em;color:#64748b"><sup>${b.n}</sup> ${inlineToHtml(b.text)}</p>`;
+          return `<p style="font-size:0.85em;color:#64748b"><sup>${b.n}</sup> ${inlineToHtml(b.text, o.highlight)}</p>`;
         case 'image':
           return `<p style="color:#64748b">[Image : ${escapeHtml(b.id)}]</p>`;
         case 'drawing':
@@ -777,7 +779,7 @@ export function buildPrintHtml(o: PrintOptions): string {
         case 'chart':
           return `<p style="color:#64748b">[Graphique : ${escapeHtml(b.id)}]</p>`;
         default:
-          return `<p>${inlineToHtml((b as { text: string }).text)}</p>`;
+          return `<p>${inlineToHtml((b as { text: string }).text, o.highlight)}</p>`;
       }
     })
     .join('\n');
@@ -787,8 +789,10 @@ export function buildPrintHtml(o: PrintOptions): string {
     : '';
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"/><title>${escapeHtml(o.title)}</title>
 <style>
+${o.fontFaceCss || ''}
 @page { size: A4; margin: 18mm 15mm; }
-body { font-family: ${o.font}, Arial, sans-serif; font-size: ${o.fontSize}pt; color: ${o.color}; line-height: ${o.lineHeight}; }
+* { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: '${o.font}', Arial, sans-serif; font-size: ${o.fontSize}pt; color: ${o.color}; line-height: ${o.lineHeight}; }
 .content { ${cols} }
 .pageno:after { counter-increment: page; content: counter(page); }
 </style></head><body>${head}<div class="content">${body}</div>${foot}</body></html>`;

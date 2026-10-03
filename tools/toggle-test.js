@@ -16,6 +16,7 @@ const {
   toggleWrap, parseInline, parseInlineKeepMarkers, stripMarkers, proofFrench,
   tableContextAt, tableInsertRow, tableDeleteRow, tableInsertCol, tableDeleteCol,
   tableDeleteBlock, tableSelectRow, tableSort, tableCellNav, applyAutoFix,
+  buildPrintHtml, buildDocFile, buildRtf,
 } = fmt;
 
 let pass = 0;
@@ -150,6 +151,21 @@ eq('preuve signale a,b', proofFrench('a,b').some((i) => i.message.includes('Espa
 
 // ── Divers ──
 eq('strip ***', stripMarkers('***x***'), 'x');
+
+// ── Export impression/PDF/DOC/RTF : couleurs, liens, police ──
+const sampleText = '# Titre\nUn ==surligné==, du `code` et un [lien](https://x.fr).\n| A | B |\n| --- | --- |\n| 1 | 2 |';
+const printOpts = { title: 't', text: sampleText, font: 'DejaVu Sans', fontSize: 12, color: '#123456', lineHeight: 1.5, highlight: '#ff0000', fontFaceCss: 'FACE' };
+const printHtml = buildPrintHtml(printOpts);
+eq('print conserve les fonds (color-adjust)', printHtml.includes('print-color-adjust: exact') && printHtml.includes('-webkit-print-color-adjust: exact'), true);
+eq('print surlignage couleur choisie', printHtml.includes('<mark style="background:#ff0000">'), true);
+eq('print surlignage défaut jaune', buildPrintHtml({ ...printOpts, highlight: undefined }).includes('<mark>'), true);
+eq('print lien stylé', printHtml.includes('<a href="https://x.fr" style="color:#2b579a'), true);
+eq('print police quotée', printHtml.includes("font-family: 'DejaVu Sans', Arial"), true);
+eq('print injecte @font-face', printHtml.includes('FACE'), true);
+eq('print fond code conservé', printHtml.includes('<code style="background:#f1f5f9'), true);
+eq('print fond entête tableau', printHtml.includes('background:#e2e8f0'), true);
+eq('doc hérite color-adjust', buildDocFile(printOpts).includes('print-color-adjust'), true);
+eq('rtf police choisie', buildRtf(printOpts).includes('DejaVu Sans'), true);
 
 console.log(`\nTOTAL: ${pass} pass, ${fail} fail`);
 process.exit(fail ? 1 : 0);

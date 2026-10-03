@@ -17,6 +17,8 @@ import * as Print from 'expo-print';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import { useFonts } from 'expo-font';
+import { Asset } from 'expo-asset';
 import type { OfficeFile } from '../../types/office';
 import {
   PAGEBREAK,
@@ -85,7 +87,28 @@ const RIBBON_TABS = [
   { id: 'help', label: 'Aide' },
 ];
 
-const FONTS = ['Calibri', 'Arial', 'Times New Roman', 'Georgia', 'Verdana', 'Courier New'];
+const FONTS = ['Calibri', 'Arial', 'Times New Roman', 'Georgia', 'Verdana', 'Courier New', 'Roboto', 'Ubuntu', 'DejaVu Sans', 'Liberation Sans'];
+
+// Polices embarquées (assets/fonts) : disponibles dans l'éditeur (expo-font)
+// et dans l'impression/PDF (@font-face base64). Poids : normal + gras.
+const BUNDLED_FONTS: Record<string, { regular: number; bold?: number }> = {
+  Roboto: {
+    regular: require('../../../assets/fonts/Roboto-Regular.ttf'),
+    bold: require('../../../assets/fonts/Roboto-Bold.ttf'),
+  },
+  Ubuntu: {
+    regular: require('../../../assets/fonts/Ubuntu-Regular.ttf'),
+    bold: require('../../../assets/fonts/Ubuntu-Bold.ttf'),
+  },
+  'DejaVu Sans': {
+    regular: require('../../../assets/fonts/DejaVuSans.ttf'),
+    bold: require('../../../assets/fonts/DejaVuSans-Bold.ttf'),
+  },
+  'Liberation Sans': {
+    regular: require('../../../assets/fonts/LiberationSans-Regular.ttf'),
+    bold: require('../../../assets/fonts/LiberationSans-Bold.ttf'),
+  },
+};
 const SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 48, 72];
 const TEXT_COLORS = ['#000000', '#e03131', '#2f9e44', '#1971c2', '#f08c00', '#9c36b5', '#1864ab', '#c2255c'];
 const HL_COLORS = ['#fef08a', '#fdba74', '#bef264', '#93c5fd', '#d8b4fe'];
@@ -757,12 +780,66 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
     }
   };
 
+  // ── Polices embarquées (non bloquant : s'appliquent dès qu'elles sont prêtes) ──
+  const [fontsLoaded] = useFonts({
+    Roboto: BUNDLED_FONTS.Roboto.regular,
+    Ubuntu: BUNDLED_FONTS.Ubuntu.regular,
+    'DejaVu Sans': BUNDLED_FONTS['DejaVu Sans'].regular,
+    'Liberation Sans': BUNDLED_FONTS['Liberation Sans'].regular,
+  });
+  void fontsLoaded;
+
+  // CSS @font-face (base64) pour l'impression/PDF/HTML : la police choisie
+  // est réellement embarquée dans le document exporté.
+  const fontFaceCache = useRef<Record<string, string>>({});
+  const getFontFaceCss = useCallback(async (name: string): Promise<string> => {
+    if (fontFaceCache.current[name] !== undefined) return fontFaceCache.current[name];
+    const entry = BUNDLED_FONTS[name];
+    if (!entry) {
+      fontFaceCache.current[name] = '';
+      return '';
+    }
+    try {
+      const toDataUri = async (mod: number): Promise<string> => {
+        const asset = Asset.fromModule(mod);
+        await asset.downloadAsync();
+        const uri = asset.localUri || asset.uri;
+        if (!uri) return '';
+        if (Platform.OS === 'web') {
+          const res = await fetch(uri);
+          const blob = await res.blob();
+          return await new Promise<string>((resolve) => {
+            const fr = new FileReader();
+            fr.onload = () => resolve(typeof fr.result === 'string' ? fr.result : '');
+            fr.onerror = () => resolve('');
+            fr.readAsDataURL(blob);
+          });
+        }
+        const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+        return `data:font/ttf;base64,${b64}`;
+      };
+      let css = '';
+      const reg = await toDataUri(entry.regular);
+      if (reg) css += `@font-face{font-family:'${name}';font-weight:400;font-style:normal;src:url(${reg}) format('truetype');}`;
+      if (entry.bold) {
+        const b = await toDataUri(entry.bold);
+        if (b) css += `@font-face{font-family:'${name}';font-weight:700;font-style:normal;src:url(${b}) format('truetype');}`;
+      }
+      fontFaceCache.current[name] = css;
+      return css;
+    } catch {
+      fontFaceCache.current[name] = '';
+      return '';
+    }
+  }, []);
+
   const doPrint = useCallback(async () => {
+    const fontFaceCss = await getFontFaceCss(font);
     const html = buildPrintHtml({
       title: file.name, text, font, fontSize, color: textColor, lineHeight: lineSpacing,
       header: header.on ? header.text : undefined,
       footer: footer.on ? footer.text : undefined,
-      pageNumbers, columns,
+      pageNumbers, columns, highlight: highlightColor, fontFaceCss,
     });
     if (Platform.OS === 'web') {
       if (downloadOnWeb(`${baseName}.html`, html, 'text/html')) {
@@ -778,14 +855,14 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
     } catch {
       showBanner('Impression impossible');
     }
-  }, [file.name, text, font, fontSize, textColor, lineSpacing, header, footer, pageNumbers, columns, baseName, showBanner]);
+  }, [file.name, text, font, fontSize, textColor, lineSpacing, header, footer, pageNumbers, columns, baseName, showBanner, highlightColor, getFontFaceCss]);
 
-  const buildExport = (fmt: ExportFormat): { filename: string; content: string; mime: string } | null => {
+  const buildExport = (fmt: ExportFormat, fontFaceCss = ''): { filename: string; content: string; mime: string } | null => {
     const o = {
       title: file.name, text, font, fontSize, color: textColor, lineHeight: lineSpacing,
       header: header.on ? header.text : undefined,
       footer: footer.on ? footer.text : undefined,
-      pageNumbers, columns,
+      pageNumbers, columns, highlight: highlightColor, fontFaceCss,
     };
     switch (fmt) {
       case 'txt':
@@ -809,7 +886,8 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
         await doPrint();
         return;
       }
-      const f = buildExport(fmt);
+      const fontFaceCss = await getFontFaceCss(font);
+      const f = buildExport(fmt, fontFaceCss);
       if (!f) return;
       if (Platform.OS === 'web') {
         if (downloadOnWeb(f.filename, f.content, f.mime)) showBanner(`Fichier téléchargé : ${f.filename}`);
@@ -830,7 +908,7 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [text, font, fontSize, textColor, lineSpacing, header, footer, pageNumbers, columns, baseName, doPrint, showBanner]
+    [text, font, fontSize, textColor, lineSpacing, header, footer, pageNumbers, columns, baseName, doPrint, showBanner, highlightColor, getFontFaceCss]
   );
 
   // ── Images ──
