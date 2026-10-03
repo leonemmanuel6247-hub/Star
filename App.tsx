@@ -262,6 +262,28 @@ export default function App() {
     [files, handleUpdateFiles, handleOpenFile, showToast]
   );
 
+  const handleCreateFiles = useCallback(
+    (newOnes: Array<{ name: string; content: object }>) => {
+      const docs: OfficeFile[] = newOnes.map((d, i) => ({
+        id: `doc-${Date.now()}-${i}`,
+        name: d.name,
+        type: 'writer' as const,
+        extension: '.docx',
+        updatedAt: Date.now(),
+        createdAt: Date.now(),
+        size: 15000,
+        isFavorite: false,
+        isPinned: false,
+        folder: 'documents',
+        tags: ['Publipostage'],
+        content: d.content,
+      }));
+      handleUpdateFiles([...docs, ...files]);
+      showToast(`${docs.length} document(s) fusionné(s) créé(s)`);
+    },
+    [files, handleUpdateFiles, showToast]
+  );
+
   const handleExportAllData = useCallback(async () => {
     try {
       const data = JSON.stringify(
@@ -340,6 +362,7 @@ export default function App() {
                 setActiveTab('home');
               }}
               onNewDocument={() => handleNewFile('writer')}
+              onCreateFiles={handleCreateFiles}
             />
           ) : currentFile.type === 'calc' ? (
             <CalcEditor file={currentFile} onUpdateFile={handleUpdateCurrentFile} />

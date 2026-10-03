@@ -16,17 +16,40 @@ export interface OfficeFile {
 }
 
 export interface CellData {
-  value: string | number;
+  value: string | number | boolean;
   display?: string;
   formula?: string;
   format?: string;
   bold?: boolean;
   italic?: boolean;
+  underline?: boolean;
   fontSize?: number;
   fontFamily?: string;
   color?: string;
   bg?: string;
   align?: 'left' | 'center' | 'right';
+}
+
+export type CalcChartType =
+  | 'bar'
+  | 'line'
+  | 'pie'
+  | 'hbar'
+  | 'area'
+  | 'scatter'
+  | 'combo'
+  | 'spark';
+
+export interface CalcChartDef {
+  id: string;
+  type: CalcChartType;
+  title: string;
+  sheetId: string;
+  start: string;
+  end: string;
+  showLegend: boolean;
+  /** Sparkline : cellule cible où le mini-graphique est dessiné. */
+  target?: string;
 }
 
 export interface CalcSheet {
