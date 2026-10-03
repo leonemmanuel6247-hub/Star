@@ -8,11 +8,15 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmt-test-'));
 execSync(
-  `npx tsc src/components/writer/format.ts --outDir "${outDir}" --module commonjs --target es2020 --skipLibCheck`,
+  `npx --no-install tsc src/components/writer/format.ts --outDir "${outDir}" --module commonjs --target es2020 --skipLibCheck`,
   { cwd: root, stdio: 'pipe' }
 );
 const fmt = require(path.join(outDir, 'format.js'));
-const { toggleWrap, parseInline, parseInlineKeepMarkers, stripMarkers } = fmt;
+const {
+  toggleWrap, parseInline, parseInlineKeepMarkers, stripMarkers, proofFrench,
+  tableContextAt, tableInsertRow, tableDeleteRow, tableInsertCol, tableDeleteCol,
+  tableDeleteBlock, tableSelectRow, tableSort, tableCellNav, applyAutoFix,
+} = fmt;
 
 let pass = 0;
 let fail = 0;
@@ -80,6 +84,69 @@ eq('**** = paire vide', parseInline('****'), []);
 const keep = parseInlineKeepMarkers('**ab');
 eq('keep ** visible', keep.map((s) => s.text).join(''), '**ab');
 eq('keep ** sans marqueur', keep.every((s) => !s.marker), true);
+
+// ── Tableaux : contexte ──
+const T2 = '| Nom | Ville |\n| --- | --- |\n| Zoe | Paris |\n| Max | Lyon |';
+eq('ctx cellule (0,0)', tableContextAt(T2, 2), { inTable: true, startLine: 0, endLine: 3, lineIndex: 0, row: 0, col: 0, colCount: 2, isSepRow: false, cellStart: 1, cellEnd: 6 });
+eq('ctx cellule (2,0)', ((c) => [c.lineIndex, c.row, c.col, c.isSepRow])(tableContextAt(T2, 33)), [2, 2, 0, false]);
+eq('ctx ligne ---', ((c) => [c.isSepRow, c.col])(tableContextAt(T2, 18)), [true, 0]);
+eq('ctx colonne 1', ((c) => [c.col, c.cellStart, c.cellEnd])(tableContextAt(T2, 10)), [1, 7, 14]);
+eq('ctx hors tableau', tableContextAt('hello', 2).inTable, false);
+
+// ── Tableaux : lignes ──
+eq('ligne en-dessous', tableInsertRow(T2, { start: 33, end: 33 }, 'below'), { text: '| Nom | Ville |\n| --- | --- |\n| Zoe | Paris |\n|    |    |\n| Max | Lyon |', sel: { start: 48, end: 48 } });
+eq('ligne au-dessus', tableInsertRow(T2, { start: 33, end: 33 }, 'above'), { text: '| Nom | Ville |\n| --- | --- |\n|    |    |\n| Zoe | Paris |\n| Max | Lyon |', sel: { start: 32, end: 32 } });
+eq('ligne hors tableau', tableInsertRow('hello', { start: 0, end: 0 }, 'below'), { text: 'hello', sel: { start: 0, end: 0 } });
+eq('suppr ligne', tableDeleteRow(T2, { start: 33, end: 33 }), { text: '| Nom | Ville |\n| --- | --- |\n| Max | Lyon |', sel: { start: 30, end: 30 } });
+eq('suppr ligne unique', tableDeleteRow('| a |', { start: 1, end: 1 }), { text: '', sel: { start: 0, end: 0 } });
+
+// ── Tableaux : colonnes ──
+const T2C3 = '| Nom |  | Ville |\n| --- | --- | --- |\n| Zoe |  | Paris |\n| Max |  | Lyon |';
+eq('colonne à droite', tableInsertCol(T2, { start: 33, end: 33 }, 'right'), { text: T2C3, sel: { start: 47, end: 47 } });
+eq('colonne à gauche (col 1)', tableInsertCol(T2, { start: 38, end: 38 }, 'left').text, T2C3);
+eq('suppr colonne', tableDeleteCol(T2, { start: 33, end: 33 }), { text: '| Ville |\n| --- |\n| Paris |\n| Lyon |', sel: { start: 20, end: 20 } });
+eq('suppr dernière colonne = bloc', tableDeleteCol('| a |\n| --- |\n| b |', { start: 1, end: 1 }), { text: '', sel: { start: 0, end: 0 } });
+
+// ── Tableaux : bloc, sélection, tri ──
+eq('suppr bloc', tableDeleteBlock('intro\n' + T2 + '\nfin', { start: 55, end: 55 }), { text: 'intro\nfin', sel: { start: 6, end: 6 } });
+eq('sélect ligne', tableSelectRow(T2, { start: 33, end: 33 }), { text: T2, sel: { start: 30, end: 45 } });
+const TS = '| Nom | Age |\n| --- | --- |\n| Zoe | 30 |\n| Max | 7 |\n| Ana | 25 |';
+eq('tri A-Z col 0', tableSort(TS, { start: 32, end: 32 }, 1).text, '| Nom | Age |\n| --- | --- |\n| Ana | 25 |\n| Max | 7 |\n| Zoe | 30 |');
+eq('tri Z-A col 1 numérique', tableSort(TS, { start: 38, end: 38 }, -1).text, '| Nom | Age |\n| --- | --- |\n| Zoe | 30 |\n| Ana | 25 |\n| Max | 7 |');
+eq('tri une seule ligne = inchangé', tableSort('| a |\n| --- |', { start: 1, end: 1 }, 1).text, '| a |\n| --- |');
+
+// ── Tableaux : navigation Tab/Entrée ──
+eq('nav suivante', tableCellNav(T2, { start: 2, end: 2 }, 'next'), { text: T2, sel: { start: 8, end: 13 } });
+eq('nav suivante saute ---', tableCellNav(T2, { start: 10, end: 10 }, 'next'), { text: T2, sel: { start: 32, end: 35 } });
+eq('nav Tab fin = nouvelle ligne', tableCellNav(T2, { start: 56, end: 56 }, 'next'), { text: T2 + '\n|    |    |', sel: { start: 62, end: 62 } });
+eq('nav précédente', tableCellNav(T2, { start: 39, end: 39 }, 'prev'), { text: T2, sel: { start: 32, end: 35 } });
+eq('nav précédent début = bloc', tableCellNav(T2, { start: 2, end: 2 }, 'prev'), { text: T2, sel: { start: 0, end: 0 } });
+eq('nav bas', tableCellNav(T2, { start: 33, end: 33 }, 'down'), { text: T2, sel: { start: 48, end: 51 } });
+eq('nav bas fin tableau = null', tableCellNav(T2, { start: 60, end: 60 }, 'down'), null);
+eq('nav bas dernière ligne = étend', tableCellNav(T2, { start: 49, end: 49 }, 'down'), { text: T2 + '\n|    |    |', sel: { start: 62, end: 62 } });
+eq('nav hors tableau = null', tableCellNav('hello', { start: 1, end: 1 }, 'next'), null);
+eq('nav depuis --- vers bas', tableCellNav(T2, { start: 18, end: 18 }, 'next'), { text: T2, sel: { start: 32, end: 35 } });
+eq('nav depuis --- vers haut', tableCellNav(T2, { start: 18, end: 18 }, 'prev'), { text: T2, sel: { start: 8, end: 13 } });
+eq('nav cellule vide = curseur', tableCellNav('| a |\n| --- |\n|  |', { start: 2, end: 2 }, 'down'), { text: '| a |\n| --- |\n|  |', sel: { start: 15, end: 15 } });
+
+// ── Correction automatique ──
+eq('fix doubles espaces', applyAutoFix('a  b'), { text: 'a b', count: 1 });
+eq('fix retrait préservé', applyAutoFix('  indented'), { text: '  indented', count: 0 });
+eq('fix mot répété', applyAutoFix('le le chat'), { text: 'le chat', count: 1 });
+eq('fix répété casse', applyAutoFix('Le le'), { text: 'Le', count: 1 });
+eq('fix répété multi-ligne ignoré', applyAutoFix('mot\nmot'), { text: 'mot\nmot', count: 0 });
+eq('fix répété multi-ligne signalé', proofFrench('mot\nmot').length, 1);
+eq('fix points', applyAutoFix('vite...'), { text: 'vite…', count: 1 });
+eq('fix ponctuation', applyAutoFix('a,b'), { text: 'a, b', count: 1 });
+eq('fix majuscule', applyAutoFix('fini. suite'), { text: 'fini. Suite', count: 1 });
+eq('fix chaîne', applyAutoFix('fini.suite'), { text: 'fini. Suite', count: 2 });
+eq('fix coquilles', applyAutoFix('parmis les language'), { text: 'parmi les langage', count: 2 });
+eq('fix coquille casse', applyAutoFix('Parmis'), { text: 'Parmi', count: 1 });
+eq('fix URL intacte', applyAutoFix('voir http://x.fr/page'), { text: 'voir http://x.fr/page', count: 0 });
+eq('fix e-mail intact', applyAutoFix('écris à a@b.com vite'), { text: 'écris à a@b.com vite', count: 0 });
+eq('fix M. Dupont', applyAutoFix('M.dupont vient'), { text: 'M. Dupont vient', count: 2 });
+eq('preuve ignore URL', proofFrench('voir http://x.fr').length, 0);
+eq('preuve signale a,b', proofFrench('a,b').some((i) => i.message.includes('Espace manquante')), true);
 
 // ── Divers ──
 eq('strip ***', stripMarkers('***x***'), 'x');

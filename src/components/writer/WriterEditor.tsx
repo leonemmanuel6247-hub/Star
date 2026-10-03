@@ -34,6 +34,15 @@ import {
   computeStats,
   extractHeadings,
   proofFrench,
+  applyAutoFix,
+  tableContextAt,
+  tableInsertRow,
+  tableDeleteRow,
+  tableInsertCol,
+  tableDeleteCol,
+  tableDeleteBlock,
+  tableSort,
+  tableCellNav,
   mergeFields,
   parseInlineKeepMarkers,
   classifyUnderlayLine,
@@ -393,6 +402,8 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
   const [wmText, setWmText] = useState('BROUILLON');
   const [proofIssues, setProofIssues] = useState<ProofIssue[]>([]);
   const [proofDone, setProofDone] = useState(false);
+  const [proofSelOnly, setProofSelOnly] = useState(false);
+  const [proofRange, setProofRange] = useState({ start: 0, end: 0 });
   const [inputHeight, setInputHeight] = useState(480);
 
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -541,28 +552,7 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
   // ── Raccourcis clavier (web / clavier physique) ──
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
-    const onKey = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey;
-      const k = e.key.toLowerCase();
-      const apply = (fn: (t: string, s: Selection) => { text: string; sel: Selection }) => {
-        const r = fn(textRef.current, selRef.current);
-        applyRef.current(r.text, r.sel);
-      };
-      if (mod && k === 's') { e.preventDefault(); persist(textRef.current); showBanner('Document enregistré'); }
-      else if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); undoRef.current(); }
-      else if ((mod && k === 'y') || (mod && e.shiftKey && k === 'z')) { e.preventDefault(); redoRef.current(); }
-      else if (mod && (k === 'b' || k === 'g')) { e.preventDefault(); apply((t, s) => toggleWrap(t, s, '**')); }
-      else if (mod && k === 'i') { e.preventDefault(); apply((t, s) => toggleWrap(t, s, '*')); }
-      else if (mod && k === 'u') { e.preventDefault(); apply((t, s) => toggleWrap(t, s, '__')); }
-      else if (mod && k === 'e') { e.preventDefault(); setAlign('center'); }
-      else if (mod && k === 'l') { e.preventDefault(); setAlign('left'); }
-      else if (mod && k === 'r') { e.preventDefault(); setAlign('right'); }
-      else if (mod && k === 'j') { e.preventDefault(); setAlign('justify'); }
-      else if (mod && k === 'f') { e.preventDefault(); setSearchMode('find'); setSearchOpen(true); }
-      else if (mod && k === 'h') { e.preventDefault(); setSearchMode('replace'); setSearchOpen(true); }
-      else if (e.key === 'F7') { e.preventDefault(); runProofRef.current(); }
-      else if (mod && e.key === 'F1') { e.preventDefault(); setRibbonCollapsed((v) => !v); }
-    };
+    const onKey = (e: KeyboardEvent) => handleKeyRef.current(e);
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -578,6 +568,56 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
   undoRef.current = undo;
   const redoRef = useRef(redo);
   redoRef.current = redo;
+
+  // ── Clavier : logique partagée entre le document global et le champ éditeur.
+  // RNW stoppe la propagation des touches du TextInput (stopPropagation) : sans le
+  // relais onKeyPress, aucun raccourci ne fonctionne pendant la frappe. Les deux
+  // voies sont complémentaires (jamais de double déclenchement).
+  const handleKey = (e: {
+    key: string;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+    shiftKey?: boolean;
+    preventDefault: () => void;
+  }) => {
+    const mod = !!(e.ctrlKey || e.metaKey);
+    const k = e.key.toLowerCase();
+    const apply = (fn: (t: string, s: Selection) => { text: string; sel: Selection }) => {
+      const r = fn(textRef.current, selRef.current);
+      applyRef.current(r.text, r.sel);
+    };
+    // Navigation dans les tableaux : Tab / Maj+Tab = cellule suivante/précédente, Entrée = ligne suivante.
+    const ae = typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null);
+    const inEditor = !!ae && ae.tagName === 'TEXTAREA';
+    if (inEditor && (e.key === 'Tab' || (e.key === 'Enter' && !mod && !e.shiftKey))) {
+      const nav = tableCellNav(
+        textRef.current,
+        selRef.current,
+        e.key === 'Tab' ? (e.shiftKey ? 'prev' : 'next') : 'down',
+      );
+      if (nav) {
+        e.preventDefault();
+        applyRef.current(nav.text, nav.sel, nav.text !== textRef.current);
+        return;
+      }
+    }
+    if (mod && k === 's') { e.preventDefault(); persist(textRef.current); showBanner('Document enregistré'); }
+    else if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); undoRef.current(); }
+    else if ((mod && k === 'y') || (mod && e.shiftKey && k === 'z')) { e.preventDefault(); redoRef.current(); }
+    else if (mod && (k === 'b' || k === 'g')) { e.preventDefault(); apply((t, s) => toggleWrap(t, s, '**')); }
+    else if (mod && k === 'i') { e.preventDefault(); apply((t, s) => toggleWrap(t, s, '*')); }
+    else if (mod && k === 'u') { e.preventDefault(); apply((t, s) => toggleWrap(t, s, '__')); }
+    else if (mod && k === 'e') { e.preventDefault(); setAlign('center'); }
+    else if (mod && k === 'l') { e.preventDefault(); setAlign('left'); }
+    else if (mod && k === 'r') { e.preventDefault(); setAlign('right'); }
+    else if (mod && k === 'j') { e.preventDefault(); setAlign('justify'); }
+    else if (mod && k === 'f') { e.preventDefault(); setSearchMode('find'); setSearchOpen(true); }
+    else if (mod && k === 'h') { e.preventDefault(); setSearchMode('replace'); setSearchOpen(true); }
+    else if (e.key === 'F7') { e.preventDefault(); runProofRef.current(); }
+    else if (mod && e.key === 'F1') { e.preventDefault(); setRibbonCollapsed((v) => !v); }
+  };
+  const handleKeyRef = useRef(handleKey);
+  handleKeyRef.current = handleKey;
 
   // ── Recherche / remplacement ──
   const matches = useRef<Array<{ start: number; end: number }>>([]);
@@ -639,14 +679,60 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
     showBanner(`${ms.length} occurrence(s) remplacée(s)`);
   };
 
-  // ── Vérification ──
+  // ── Vérification (document entier, ou sélection si non vide) ──
   const runProof = useCallback(() => {
-    const issues = proofFrench(text);
+    const s0 = Math.min(sel.start, sel.end);
+    const e0 = Math.max(sel.start, sel.end);
+    const scoped = e0 > s0;
+    const slice = scoped ? text.slice(s0, e0) : text;
+    const raw = proofFrench(slice);
+    const issues = scoped ? raw.map((p) => ({ ...p, index: p.index + s0 })) : raw;
     setProofIssues(issues);
     setProofDone(true);
+    setProofSelOnly(scoped);
+    setProofRange({ start: s0, end: scoped ? e0 : text.length });
     setActiveModal('proof');
-    if (issues.length === 0) showBanner('Aucun problème détecté');
-  }, [text, showBanner]);
+    if (issues.length === 0) showBanner(scoped ? 'Sélection sans problème détecté' : 'Aucun problème détecté');
+  }, [text, sel, showBanner]);
+
+  // ── Tout corriger (portée de la dernière vérification) ──
+  const fixAllProof = useCallback(() => {
+    const s0 = Math.max(0, proofRange.start);
+    const e0 = Math.min(Math.max(proofRange.end, s0), text.length);
+    const slice = text.slice(s0, e0);
+    const r = applyAutoFix(slice);
+    if (r.count === 0) {
+      showBanner('Rien à corriger automatiquement');
+      return;
+    }
+    const next = text.slice(0, s0) + r.text + text.slice(e0);
+    const newEnd = s0 + r.text.length;
+    applyText(next, { start: s0, end: newEnd });
+    setProofRange({ start: s0, end: newEnd });
+    const raw = proofFrench(r.text);
+    setProofIssues(proofSelOnly ? raw.map((p) => ({ ...p, index: p.index + s0 })) : raw);
+    showBanner(`${r.count} correction(s) automatique(s)`);
+  }, [text, proofRange, proofSelOnly, applyText, showBanner]);
+  // Entrée dans un tableau (natif) : descendre à la ligne suivante au lieu de casser le tableau.
+  // Sur Android on ne peut pas annuler la touche : on détecte le « \n » inséré et on le remplace par la navigation.
+  const onEditorChange = useCallback((t: string) => {
+    if (Platform.OS !== 'web') {
+      const prev = textRef.current;
+      if (t.length === prev.length + 1) {
+        let ins = 0;
+        while (ins < prev.length && prev[ins] === t[ins]) ins += 1;
+        if (t[ins] === '\n') {
+          const nav = tableCellNav(prev, { start: ins, end: ins }, 'down');
+          if (nav) {
+            applyText(nav.text, nav.sel, nav.text !== prev);
+            return;
+          }
+        }
+      }
+    }
+    applyText(t);
+  }, [applyText]);
+
   const runProofRef = useRef(runProof);
   runProofRef.current = runProof;
 
@@ -779,6 +865,23 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
   const insertSnippet = (snippet: string) => {
     const r = insertAtCursor(text, sel, snippet);
     applyText(r.text, r.sel);
+  };
+
+  // ── Tableaux : contexte du curseur (groupe contextuel façon Word) ──
+  const tblCtx = tableContextAt(text, Math.min(sel.start, sel.end));
+
+  const applyTableOp = (
+    op: (t: string, s: Selection) => { text: string; sel: Selection },
+    doneMsg: string,
+    idleMsg = 'Placez le curseur dans un tableau',
+  ) => {
+    const r = op(text, sel);
+    if (r.text === text) {
+      showBanner(tblCtx.inTable ? idleMsg : 'Placez le curseur dans un tableau');
+      return;
+    }
+    applyText(r.text, r.sel);
+    showBanner(doneMsg);
   };
 
   const insertTable = (rows: number, cols: number) => {
@@ -1128,6 +1231,19 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
                 <RibbonButton icon="table" label="Tableau" onPress={() => setActiveModal('table')} />
                 <RibbonButton icon="table-large" label="Tableau rapide" onPress={() => insertTable(4, 3)} />
               </RibbonGroup>
+              {tblCtx.inTable && (
+                <RibbonGroup title="Lignes et colonnes">
+                  <RibbonSmallBtn icon="table-row-plus-before" label="Ligne au-dessus" onPress={() => applyTableOp((t, s) => tableInsertRow(t, s, 'above'), 'Ligne insérée')} />
+                  <RibbonSmallBtn icon="table-row-plus-after" label="Ligne en-dessous" onPress={() => applyTableOp((t, s) => tableInsertRow(t, s, 'below'), 'Ligne insérée')} />
+                  <RibbonSmallBtn icon="table-row-remove" label="Supprimer la ligne" onPress={() => applyTableOp(tableDeleteRow, 'Ligne supprimée')} />
+                  <RibbonSmallBtn icon="table-column-plus-before" label="Colonne à gauche" onPress={() => applyTableOp((t, s) => tableInsertCol(t, s, 'left'), 'Colonne insérée')} />
+                  <RibbonSmallBtn icon="table-column-plus-after" label="Colonne à droite" onPress={() => applyTableOp((t, s) => tableInsertCol(t, s, 'right'), 'Colonne insérée')} />
+                  <RibbonSmallBtn icon="table-column-remove" label="Supprimer la colonne" onPress={() => applyTableOp(tableDeleteCol, 'Colonne supprimée')} />
+                  <RibbonSmallBtn icon="table-remove" label="Supprimer le tableau" color="#b91c1c" onPress={() => applyTableOp(tableDeleteBlock, 'Tableau supprimé')} />
+                  <RibbonSmallBtn icon="sort-ascending" label="Trier A-Z" onPress={() => applyTableOp((t, s) => tableSort(t, s, 1), 'Tableau trié (A→Z)', 'Rien à trier')} />
+                  <RibbonSmallBtn icon="sort-descending" label="Trier Z-A" onPress={() => applyTableOp((t, s) => tableSort(t, s, -1), 'Tableau trié (Z→A)', 'Rien à trier')} />
+                </RibbonGroup>
+              )}
               <RibbonGroup title="Illustrations">
                 <RibbonButton icon="image" label="Image" onPress={pickImage} />
                 <RibbonButton icon="shape-outline" label="Formes" onPress={() => setDrawOpen(true)} />
@@ -1524,7 +1640,12 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
                   <TextInput
                     testID="editor"
                     value={text}
-                    onChangeText={(t) => applyText(t)}
+                    onChangeText={onEditorChange}
+                    onKeyPress={(e: any) => {
+                      if (Platform.OS !== 'web') return;
+                      if (e?.nativeEvent?.isComposing) return;
+                      handleKey(e);
+                    }}
                     onSelectionChange={(e) => setSel(e.nativeEvent.selection)}
                     onContentSizeChange={(e) => {
                       const h = e.nativeEvent.contentSize.height;
@@ -1657,7 +1778,10 @@ export default function WriterEditor({ file, onUpdateFile, onCloseDocument, onNe
             <Text style={styles.modalText}>Aucun problème détecté. Astuce : la vérification repère les doubles espaces, mots répétés, majuscules manquantes, confusions a/à et sa/ça, espaces après ponctuation et fautes fréquentes.</Text>
           ) : (
             <>
-              <Text style={styles.modalText}>{proofIssues.length} remarque(s). Touchez une remarque pour la localiser :</Text>
+              <Text style={styles.modalText}>{proofIssues.length} remarque(s){proofSelOnly ? ' dans la sélection' : ' dans le document'}. Touchez une remarque pour la localiser :</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Tout corriger" style={styles.primaryBtn} onPress={fixAllProof}>
+                <Text style={styles.primaryBtnText}>Tout corriger</Text>
+              </Pressable>
               {proofIssues.map((p, i) => (
                 <Pressable accessibilityRole="button"
                   key={i}

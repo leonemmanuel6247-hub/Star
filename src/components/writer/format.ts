@@ -392,10 +392,12 @@ export function proofFrench(rawText: string): ProofIssue[] {
   const savs = /\bsa\s+(va|vont|marche|dépend|dépendent|me|te|nous|vous|y|en|donne|fait|change)\b/gi;
   while ((m = savs.exec(text)) !== null)
     push(m.index, 2, '« sa » ou « ça » ? (devant un verbe, c’est souvent « ça »)');
-  // Espace manquante après ponctuation (hors nombres)
-  const nospace = /([,.;:!?…])([^\s\d"’»])/g;
-  while ((m = nospace.exec(text)) !== null)
+  // Espace manquante après ponctuation (hors nombres, URL et domaines)
+  const nospace = /([,.;:!?…])([^\s\d"’»/])/g;
+  while ((m = nospace.exec(text)) !== null) {
+    if (m[1] === '.' && /^[a-z]{2,4}\b/.test(text.slice(m.index + 1))) continue; // b.com, site.fr…
     push(m.index, 1, 'Espace manquante après la ponctuation');
+  }
   // Points de suspension
   const dots = /\.{3,}/g;
   while ((m = dots.exec(text)) !== null)
@@ -997,4 +999,400 @@ export function classifyUnderlayLine(line: string): UnderlayLineStyle {
   )
     return 'muted';
   return null;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Tableaux — moteur d'édition façon Word (pur, testé)
+// Inspiré du jeu de commandes de CasualOffice/docs (commands/table.ts),
+// adapté au Markdown : lignes/colonnes/suppression/tri/navigation.
+// ─────────────────────────────────────────────────────────────
+
+const TABLE_ROW_RE = /^\|\s*.+\|\s*$/;
+const TABLE_SEP_RE = /^\|(\s*:?-{1,}:?\s*\|)+\s*$/;
+
+function isTableLine(line: string): boolean {
+  return TABLE_ROW_RE.test(line.trim());
+}
+
+function isSepLine(line: string): boolean {
+  return TABLE_SEP_RE.test(line.trim());
+}
+
+/** Découpe une ligne de tableau en cellules (sans les bordures). */
+function splitRowCells(line: string): string[] {
+  const t = line.trim();
+  const inner =
+    t.startsWith('|') && t.endsWith('|') && t.length >= 2 ? t.slice(1, -1) : t;
+  return inner.split('|');
+}
+
+function pipeIdx(line: string): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < line.length; i += 1) if (line[i] === '|') out.push(i);
+  return out;
+}
+
+function blankRow(colCount: number): string {
+  const cells = Array.from({ length: Math.max(1, colCount) }).map(() => '  ');
+  return `| ${cells.join(' | ')} |`;
+}
+
+function buildRow(cells: string[], sep: boolean): string {
+  return `| ${cells.map((c) => (sep ? c.trim() || '---' : c.trim())).join(' | ')} |`;
+}
+
+function lineStartOffset(lines: string[], idx: number): number {
+  let off = 0;
+  for (let i = 0; i < idx && i < lines.length; i += 1) off += lines[i].length + 1;
+  return off;
+}
+
+function blockDataRows(lines: string[], start: number, end: number): number[] {
+  const rows: number[] = [];
+  for (let i = start; i <= end; i += 1) if (!isSepLine(lines[i])) rows.push(i);
+  return rows;
+}
+
+/** Resserre une plage brute sur son contenu (sans les espaces). */
+function trimRange(text: string, s: number, e: number): Selection {
+  let a = Math.max(0, s);
+  let b = Math.min(text.length, e);
+  while (a < b && text[a] === ' ') a += 1;
+  while (b > a && text[b - 1] === ' ') b -= 1;
+  if (a >= b) return { start: s, end: s };
+  return { start: a, end: b };
+}
+
+function cellRange(text: string, line: string, lineStart: number, cellIdx: number): Selection {
+  const pipes = pipeIdx(line);
+  const c = Math.max(0, cellIdx);
+  const left = pipes[Math.min(c, pipes.length - 1)] ?? -1;
+  const right = pipes[Math.min(c + 1, pipes.length - 1)] ?? line.length;
+  return trimRange(text, lineStart + left + 1, lineStart + Math.max(right, left + 1));
+}
+
+export interface TableContext {
+  inTable: boolean;
+  startLine: number; // 1re ligne du bloc (absolue)
+  endLine: number; // dernière ligne du bloc (absolue)
+  lineIndex: number; // ligne du curseur (absolue)
+  row: number; // ligne relative au bloc
+  col: number; // colonne du curseur
+  colCount: number; // nb de colonnes du bloc
+  isSepRow: boolean; // curseur sur une ligne « --- »
+  cellStart: number; // offsets doc bruts de la cellule
+  cellEnd: number;
+}
+
+const NO_TABLE: TableContext = {
+  inTable: false,
+  startLine: -1,
+  endLine: -1,
+  lineIndex: -1,
+  row: -1,
+  col: -1,
+  colCount: 0,
+  isSepRow: false,
+  cellStart: -1,
+  cellEnd: -1,
+};
+
+/** Contexte tableau à une position : bloc, ligne, colonne, cellule. */
+export function tableContextAt(text: string, pos: number): TableContext {
+  const lines = text.split('\n');
+  const p = Math.max(0, Math.min(pos, text.length));
+  let acc = 0;
+  let li = 0;
+  for (; li < lines.length; li += 1) {
+    if (p <= acc + lines[li].length) break;
+    acc += lines[li].length + 1;
+  }
+  if (li >= lines.length) return NO_TABLE;
+  const cur = lines[li];
+  if (!isTableLine(cur)) return NO_TABLE;
+  let start = li;
+  while (start > 0 && isTableLine(lines[start - 1])) start -= 1;
+  let end = li;
+  while (end < lines.length - 1 && isTableLine(lines[end + 1])) end += 1;
+  // Nb de colonnes : ligne séparatrice de préférence, sinon 1re ligne.
+  let ref = lines[start];
+  for (let i = start; i <= end; i += 1) {
+    if (isSepLine(lines[i])) {
+      ref = lines[i];
+      break;
+    }
+  }
+  const colCount = Math.max(1, splitRowCells(ref).length);
+  // Colonne : barres verticales strictement avant le curseur, moins une.
+  const inLine = p - acc;
+  const pipes = pipeIdx(cur);
+  let col = 0;
+  for (const px of pipes) if (px < inLine) col += 1;
+  col = Math.max(0, Math.min(col - 1, colCount - 1));
+  const left = pipes[Math.min(col, pipes.length - 1)] ?? -1;
+  const right = pipes[Math.min(col + 1, pipes.length - 1)] ?? cur.length;
+  return {
+    inTable: true,
+    startLine: start,
+    endLine: end,
+    lineIndex: li,
+    row: li - start,
+    col,
+    colCount,
+    isSepRow: isSepLine(cur),
+    cellStart: acc + left + 1,
+    cellEnd: acc + Math.max(right, left + 1),
+  };
+}
+
+export function tableInsertRow(
+  text: string,
+  sel: Selection,
+  where: 'above' | 'below',
+): { text: string; sel: Selection } {
+  const ctx = tableContextAt(text, Math.min(sel.start, sel.end));
+  if (!ctx.inTable) return { text, sel };
+  const lines = text.split('\n');
+  const at = ctx.lineIndex + (where === 'below' ? 1 : 0);
+  lines.splice(at, 0, blankRow(ctx.colCount));
+  const off = lineStartOffset(lines, at);
+  return { text: lines.join('\n'), sel: { start: off + 2, end: off + 2 } };
+}
+
+export function tableDeleteRow(text: string, sel: Selection): { text: string; sel: Selection } {
+  const ctx = tableContextAt(text, Math.min(sel.start, sel.end));
+  if (!ctx.inTable) return { text, sel };
+  const lines = text.split('\n');
+  lines.splice(ctx.lineIndex, 1);
+  const next = lines.join('\n');
+  if (lines.length === 0) return { text: next, sel: { start: 0, end: 0 } };
+  const pos = lineStartOffset(lines, Math.min(ctx.lineIndex, lines.length - 1));
+  return { text: next, sel: { start: pos, end: pos } };
+}
+
+export function tableInsertCol(
+  text: string,
+  sel: Selection,
+  side: 'left' | 'right',
+): { text: string; sel: Selection } {
+  const ctx = tableContextAt(text, Math.min(sel.start, sel.end));
+  if (!ctx.inTable) return { text, sel };
+  const lines = text.split('\n');
+  const at = ctx.col + (side === 'right' ? 1 : 0);
+  for (let i = ctx.startLine; i <= ctx.endLine; i += 1) {
+    const sep = isSepLine(lines[i]);
+    const cells = splitRowCells(lines[i]);
+    while (cells.length < ctx.colCount) cells.push(sep ? '---' : '  ');
+    cells.splice(Math.min(at, cells.length), 0, sep ? '---' : '  ');
+    lines[i] = buildRow(cells, sep);
+  }
+  const next = lines.join('\n');
+  const rebuilt = lines[ctx.lineIndex];
+  const pipes = pipeIdx(rebuilt);
+  const pos = lineStartOffset(lines, ctx.lineIndex) + (pipes[Math.min(at, pipes.length - 1)] ?? 0) + 2;
+  return { text: next, sel: { start: pos, end: pos } };
+}
+
+export function tableDeleteCol(text: string, sel: Selection): { text: string; sel: Selection } {
+  const ctx = tableContextAt(text, Math.min(sel.start, sel.end));
+  if (!ctx.inTable) return { text, sel };
+  if (ctx.colCount <= 1) return tableDeleteBlock(text, sel);
+  const lines = text.split('\n');
+  for (let i = ctx.startLine; i <= ctx.endLine; i += 1) {
+    const sep = isSepLine(lines[i]);
+    const cells = splitRowCells(lines[i]);
+    while (cells.length < ctx.colCount) cells.push(sep ? '---' : '  ');
+    cells.splice(Math.min(ctx.col, cells.length - 1), 1);
+    lines[i] = buildRow(cells, sep);
+  }
+  const next = lines.join('\n');
+  const pos = lineStartOffset(lines, ctx.lineIndex) + 2;
+  return { text: next, sel: { start: pos, end: pos } };
+}
+
+export function tableDeleteBlock(text: string, sel: Selection): { text: string; sel: Selection } {
+  const ctx = tableContextAt(text, Math.min(sel.start, sel.end));
+  if (!ctx.inTable) return { text, sel };
+  const lines = text.split('\n');
+  const off = lineStartOffset(lines, ctx.startLine);
+  lines.splice(ctx.startLine, ctx.endLine - ctx.startLine + 1);
+  const next = lines.join('\n');
+  const pos = Math.min(off, next.length);
+  return { text: next, sel: { start: pos, end: pos } };
+}
+
+export function tableSelectRow(text: string, sel: Selection): { text: string; sel: Selection } {
+  const ctx = tableContextAt(text, Math.min(sel.start, sel.end));
+  if (!ctx.inTable) return { text, sel };
+  const lines = text.split('\n');
+  const off = lineStartOffset(lines, ctx.lineIndex);
+  return { text, sel: { start: off, end: off + lines[ctx.lineIndex].length } };
+}
+
+/** Tri des lignes de données selon la colonne du curseur (en-tête épinglée). */
+export function tableSort(text: string, sel: Selection, dir: 1 | -1): { text: string; sel: Selection } {
+  const ctx = tableContextAt(text, Math.min(sel.start, sel.end));
+  if (!ctx.inTable) return { text, sel };
+  const lines = text.split('\n');
+  const data = blockDataRows(lines, ctx.startLine, ctx.endLine);
+  if (data.length < 2) return { text, sel };
+  const key = (lineIdx: number): string => {
+    const cells = splitRowCells(lines[lineIdx]);
+    return (cells[Math.min(ctx.col, cells.length - 1)] ?? '').trim();
+  };
+  const rest = data.slice(1);
+  rest.sort((a, b) => dir * key(a).localeCompare(key(b), 'fr', { numeric: true, sensitivity: 'base' }));
+  const sorted = lines.slice();
+  rest.forEach((lineIdx, k) => {
+    sorted[data[k + 1]] = lines[lineIdx];
+  });
+  return { text: sorted.join('\n'), sel };
+}
+
+/**
+ * Navigation clavier dans un tableau (Tab / Maj+Tab / Entrée).
+ * Retourne null hors tableau (laisser le comportement normal).
+ * - Tab sur la dernière cellule : ajoute une ligne (façon Word) ;
+ * - Entrée en fin de dernière ligne : null (sortir du tableau).
+ */
+export function tableCellNav(
+  text: string,
+  sel: Selection,
+  move: 'next' | 'prev' | 'down',
+): { text: string; sel: Selection } | null {
+  const pos = Math.max(sel.start, sel.end);
+  const ctx = tableContextAt(text, pos);
+  if (!ctx.inTable) return null;
+  const lines = text.split('\n');
+  const data = blockDataRows(lines, ctx.startLine, ctx.endLine);
+  const blockStart = lineStartOffset(lines, ctx.startLine);
+
+  const gotoAppended = (col: number): { text: string; sel: Selection } => {
+    const nl = lines.slice();
+    nl.splice(ctx.endLine + 1, 0, blankRow(ctx.colCount));
+    const next = nl.join('\n');
+    const off = lineStartOffset(nl, ctx.endLine + 1);
+    return { text: next, sel: cellRange(next, nl[ctx.endLine + 1], off, Math.min(col, ctx.colCount - 1)) };
+  };
+
+  if (data.length === 0) {
+    // Bloc dégénéré (que des lignes « --- »).
+    if (move === 'prev') return { text, sel: { start: blockStart, end: blockStart } };
+    return gotoAppended(0);
+  }
+
+  const di = data.indexOf(ctx.lineIndex);
+  if (di === -1) {
+    // Curseur sur une ligne « --- » : on rejoint les données les plus proches.
+    const before = data.filter((d) => d < ctx.lineIndex);
+    const after = data.filter((d) => d > ctx.lineIndex);
+    if (move === 'prev') {
+      if (before.length === 0) return { text, sel: { start: blockStart, end: blockStart } };
+      const li = before[before.length - 1];
+      return { text, sel: cellRange(text, lines[li], lineStartOffset(lines, li), splitRowCells(lines[li]).length - 1) };
+    }
+    if (after.length === 0) return gotoAppended(move === 'down' ? ctx.col : 0);
+    const li = after[0];
+    const n = splitRowCells(lines[li]).length;
+    const targetCol = move === 'down' ? Math.min(ctx.col, n - 1) : 0;
+    return { text, sel: cellRange(text, lines[li], lineStartOffset(lines, li), Math.max(0, targetCol)) };
+  }
+
+  const cellsHere = splitRowCells(lines[ctx.lineIndex]).length;
+  if (move === 'next') {
+    if (ctx.col + 1 < cellsHere) {
+      return { text, sel: cellRange(text, lines[ctx.lineIndex], lineStartOffset(lines, ctx.lineIndex), ctx.col + 1) };
+    }
+    if (di + 1 < data.length) {
+      const li = data[di + 1];
+      return { text, sel: cellRange(text, lines[li], lineStartOffset(lines, li), 0) };
+    }
+    return gotoAppended(0);
+  }
+  if (move === 'prev') {
+    if (ctx.col > 0) {
+      return { text, sel: cellRange(text, lines[ctx.lineIndex], lineStartOffset(lines, ctx.lineIndex), ctx.col - 1) };
+    }
+    if (di > 0) {
+      const li = data[di - 1];
+      return { text, sel: cellRange(text, lines[li], lineStartOffset(lines, li), splitRowCells(lines[li]).length - 1) };
+    }
+    return { text, sel: { start: blockStart, end: blockStart } };
+  }
+  // move === 'down'
+  if (di + 1 < data.length) {
+    const li = data[di + 1];
+    return {
+      text,
+      sel: cellRange(text, lines[li], lineStartOffset(lines, li), Math.min(ctx.col, splitRowCells(lines[li]).length - 1)),
+    };
+  }
+  // Dernière ligne de données : en fin de ligne, on laisse Entrée sortir du tableau.
+  if (pos >= lineStartOffset(lines, ctx.lineIndex) + lines[ctx.lineIndex].length) return null;
+  return gotoAppended(ctx.col);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Correction automatique (bouton « Tout corriger »)
+// Mêmes règles que proofFrench, sauf a/à et sa/ça (jugement humain).
+// ─────────────────────────────────────────────────────────────
+
+export interface AutoFixResult {
+  text: string;
+  count: number;
+}
+
+export function applyAutoFix(input: string): AutoFixResult {
+  let t = input;
+  let n = 0;
+  // 1. Points de suspension (avant la règle d'espacement).
+  t = t.replace(/\.{3,}/g, () => {
+    n += 1;
+    return '…';
+  });
+  // 2. Coquilles fréquentes (casse préservée).
+  const typoFix: Array<[RegExp, string]> = [
+    [/\baujoud[’']hui\b/gi, 'aujourd’hui'],
+    [/\blanguage\b/gi, 'langage'],
+    [/\bparmis\b/gi, 'parmi'],
+    [/\bmalgrés\b/gi, 'malgré'],
+  ];
+  for (const [rx, fix] of typoFix) {
+    rx.lastIndex = 0;
+    t = t.replace(rx, (w: string) => {
+      n += 1;
+      const first = w.slice(0, 1);
+      const head = first === first.toUpperCase() ? fix.slice(0, 1).toUpperCase() : fix.slice(0, 1);
+      return head + fix.slice(1);
+    });
+  }
+  // 3. Mots répétés sur la même ligne (jamais à travers un saut de ligne).
+  t = t.replace(/\b([A-Za-zÀ-ÿ]+)([ \t]+)\1\b/gi, (m: string, w: string) => {
+    void m;
+    n += 1;
+    return w;
+  });
+  // 4. Espaces multiples (hors retraits en début de ligne).
+  t = t.replace(/(\S) {2,}/g, (m: string, c: string) => {
+    void m;
+    n += 1;
+    return `${c} `;
+  });
+  // 5. Espace après ponctuation (hors nombres, URL et domaines).
+  t = t.replace(
+    /([,.;:!?…])([^\s\d"'’»/.…])/g,
+    (m: string, p1: string, p2: string, off: number, whole: string) => {
+      void m;
+      if (p1 === '.' && /^[a-z]{2,4}\b/.test(whole.slice(off + 1))) return `${p1}${p2}`;
+      n += 1;
+      return `${p1} ${p2}`;
+    },
+  );
+  // 6. Majuscule en début de phrase.
+  t = t.replace(/([.!?…]\s+)([a-zàâäéèêëîïôöùûüç])/g, (m: string, p1: string, p2: string) => {
+    void m;
+    n += 1;
+    return p1 + p2.toUpperCase();
+  });
+  return { text: t, count: n };
 }

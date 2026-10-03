@@ -1,5 +1,5 @@
 // Régression Writer : fumée tous onglets + fonctions formatage (persisté dans le dépôt).
-// Usage : LD_LIBRARY_PATH=/tmp NODE_PATH=/tmp/shot/node_modules node tools/regression.js
+// Usage : LD_LIBRARY_PATH=/tmp/nsslib:/tmp NODE_PATH=/tmp/shot/node_modules node tools/regression.js
 const chromium = require('@sparticuz/chromium');
 const { chromium: pw } = require('playwright-core');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -15,7 +15,7 @@ const check = (nom, cond, extra = '') => {
     executablePath: exe,
     args: [...chromium.args, '--no-sandbox', '--disable-gpu'],
     headless: true,
-    env: { ...process.env, LD_LIBRARY_PATH: '/tmp' },
+    env: { ...process.env, LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH || '/tmp' },
   });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   page.setDefaultTimeout(15000);
@@ -95,8 +95,7 @@ const check = (nom, cond, extra = '') => {
   await page.getByRole('button', { name: 'Accueil', exact: true }).click(); await sleep(500);
 
   // ── 2. Fonctionnel : formatage ciblé au milieu du texte ──
-  await btn('Sélectionner').click(); await sleep(300);
-  await editor().pressSequentially('alpha beta gamma\ndelta epsilon zeta', { delay: 2 }); await sleep(500);
+  await editor().fill('alpha beta gamma\ndelta epsilon zeta'); await sleep(500);
   async function selectWord(lineIdx, colStart, len) {
     await editor().focus(); await sleep(200);
     await page.keyboard.press('Control+Home'); await sleep(200);
@@ -195,6 +194,70 @@ const check = (nom, cond, extra = '') => {
   await page.screenshot({ path: 'preview/reg-apercu.png' });
   await resetUI();
   await page.getByRole('button', { name: 'Accueil', exact: true }).click(); await sleep(400);
+
+  // ── 3. Tableaux : groupe contextuel + navigation clavier + tri ──
+  await page.getByRole('button', { name: 'Insertion', exact: true }).click(); await sleep(500);
+  await editor().fill('| Nom | Age |\n| --- | --- |\n| Zoe | 30 |\n| Max | 7 |'); await sleep(600);
+  await selectWord(2, 2, 3); // « Zoe »
+  await sleep(500);
+  check('tableaux groupe contextuel', await btn('Ligne en-dessous').count() === 1);
+  await page.screenshot({ path: 'preview/reg-tableaux.png' });
+  await btn('Ligne en-dessous').click(); await sleep(600);
+  let vtt = await val();
+  check('tableaux ligne insérée', vtt.split('\n').length === 5 && vtt.split('\n')[3] === '|    |    |', vtt.split('\n').join(' / '));
+  await btn('Supprimer la ligne').click(); await sleep(600);
+  vtt = await val();
+  check('tableaux ligne supprimée', vtt.split('\n').length === 4 && vtt.includes('Zoe') && vtt.includes('Max'), vtt.split('\n').join(' / '));
+  await btn('Colonne à droite').click(); await sleep(600);
+  vtt = await val();
+  check('tableaux colonne insérée', vtt.includes('| --- | --- | --- |'), vtt.split('\n')[1]);
+  await btn('Supprimer la colonne').click(); await sleep(600);
+  vtt = await val();
+  check('tableaux colonne supprimée', vtt.includes('| --- | --- |') && !vtt.includes('| --- | --- | --- |'), vtt.split('\n')[1]);
+  await btn('Trier A-Z').click(); await sleep(600);
+  vtt = await val();
+  check('tableaux tri A-Z', vtt.indexOf('Max') !== -1 && vtt.indexOf('Max') < vtt.indexOf('Zoe'), vtt.split('\n').slice(2).join(' / '));
+  await btn('Trier Z-A').click(); await sleep(600);
+  vtt = await val();
+  check('tableaux tri Z-A', vtt.indexOf('Zoe') !== -1 && vtt.indexOf('Zoe') < vtt.indexOf('Max'), vtt.split('\n').slice(2).join(' / '));
+  await selectWord(0, 2, 3); // « Nom »
+  await page.keyboard.press('Tab'); await sleep(500);
+  const tabSel = await editor().evaluate((el) => el.value.slice(el.selectionStart, el.selectionEnd));
+  check('tableaux Tab = cellule suivante', tabSel === 'Age', tabSel);
+  const beforeEnter = await val();
+  await page.keyboard.press('Enter'); await sleep(500);
+  const enterSel = await editor().evaluate((el) => el.value.slice(el.selectionStart, el.selectionEnd));
+  check('tableaux Entrée descend sans casser', (await val()) === beforeEnter && enterSel === '30', `${enterSel} | ${(await val()).split('\n').length} lignes`);
+  await editor().focus(); await sleep(200);
+  await page.keyboard.press('Control+End'); await sleep(400);
+  await page.keyboard.press('Enter'); await sleep(500);
+  check('tableaux Entrée fin = sortie', (await val()).split('\n').length === 5, (await val()).split('\n').join(' / '));
+  await page.keyboard.press('ArrowUp'); await sleep(500);
+  await btn('Supprimer le tableau').click(); await sleep(600);
+  check('tableaux bloc supprimé', !(await val()).includes('|'), await val());
+
+  // ── 4. Correction : portée sélection + Tout corriger ──
+  await editor().fill('Tout est propre ici.\nle le chat  dort. vite'); await sleep(600);
+  await selectWord(0, 0, 20); // ligne propre uniquement
+  await page.getByRole('button', { name: 'Révision', exact: true }).click(); await sleep(500);
+  await btn('Orthographe').click(); await sleep(700);
+  check('preuve sélection propre = 0', await page.getByText('Aucun problème détecté').count() >= 1);
+  await resetUI(); await sleep(300);
+  await selectWord(1, 0, 22); // ligne fautive uniquement
+  await btn('Orthographe').click(); await sleep(700);
+  const scopeTxt = await page.getByText(/remarque\(s\) dans la sélection/).first().textContent();
+  check('preuve sélection compte', (scopeTxt || '').startsWith('3 remarque'), scopeTxt);
+  await page.screenshot({ path: 'preview/reg-preuve.png' });
+  await btn('Tout corriger').click(); await sleep(700);
+  const vfix = await val();
+  check('preuve tout corriger', vfix.split('\n')[1] === 'le chat dort. Vite', vfix);
+  check('preuve vide après fix', await page.getByText('Aucun problème détecté').count() >= 1);
+  await resetUI(); await sleep(300);
+
+  // ── 5. Raccourcis clavier dans l'éditeur (relais onKeyPress, cf. stopPropagation RNW) ──
+  await selectWord(0, 0, 4); // « Tout »
+  await page.keyboard.press('Control+g'); await sleep(500);
+  check('clavier Ctrl+G = gras', (await val()).split('\n')[0].startsWith('**Tout**'), (await val()).split('\n')[0]);
 
   check('0 erreur console/page', errors.length === 0, errors.slice(0, 4).join(' /// '));
   console.log(results.join('\n'));
