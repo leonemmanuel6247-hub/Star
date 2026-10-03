@@ -2,10 +2,13 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, arena/01a0fc93-star]
   pull_request:
     branches: [main, master]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-android:
@@ -35,7 +38,7 @@ jobs:
       - name: 🤖 Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-34 build-tools;34.0.0 ndk;27.1.12297006'
+          packages: 'platforms;android-35 build-tools;35.0.0 ndk;27.1.12297006'
 
       - name: 📚 Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
@@ -60,70 +63,94 @@ jobs:
           echo "=== gradle.properties ==="
           cat android/gradle.properties
 
-      - name: 🔑 Generate release signing keystore
+      - name: 🔑 Keystore de signature (stable si Secret présent)
+        env:
+          STAR_KEYSTORE_PASSWORD: ${{ secrets.STAR_KEYSTORE_PASSWORD }}
         run: |
           mkdir -p android/app
-          keytool -genkey -v \
-            -keystore android/app/star-release.keystore \
-            -storepass staroffice \
-            -alias star-key \
-            -keypass staroffice \
-            -dname "CN=StarOffice, OU=Mobile, O=leonemmanuel6247-hub, C=FR" \
-            -keyalg RSA -keysize 2048 -validity 36500
+          if [ -n "$STAR_KEYSTORE_PASSWORD" ] && [ -f ci/star-release.p12 ]; then
+            keytool -importkeystore -noprompt \
+              -srckeystore ci/star-release.p12 -srcstoretype PKCS12 \
+              -srcstorepass "$STAR_KEYSTORE_PASSWORD" \
+              -destkeystore android/app/star-release.keystore \
+              -deststorepass "$STAR_KEYSTORE_PASSWORD" \
+              -destalias star-key -destkeypass "$STAR_KEYSTORE_PASSWORD"
+            echo "STAR_STOREPASS=$STAR_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "✅ Keystore STABLE importé (mises à jour compatibles)"
+          else
+            keytool -genkey -v \
+              -keystore android/app/star-release.keystore \
+              -storepass staroffice \
+              -alias star-key \
+              -keypass staroffice \
+              -dname "CN=StarOffice, OU=Mobile, O=leonemmanuel6247-hub, C=FR" \
+              -keyalg RSA -keysize 2048 -validity 36500
+            echo "STAR_STOREPASS=staroffice" >> "$GITHUB_ENV"
+            echo "⚠️ Secret STAR_KEYSTORE_PASSWORD absent : keystore ÉPHÉMÈRE (désinstaller avant chaque nouveau build)"
+          fi
           ls -la android/app/star-release.keystore
 
       - name: 🔗 Patch build.gradle to sign release
         run: |
-          # Inject signing config for release build
+          # Inject signing config for release build (testé avec le template Expo SDK 53,
+          # qui contient déjà signingConfigs { debug } mais pas de config release)
           python3 << 'PYEOF'
           import re
           path = 'android/app/build.gradle'
-          with open(path, 'r') as f:
-              content = f.read()
-
-          # Find the android { block and add signingConfigs before buildTypes
-          signing_block = """
-          signingConfigs {
-              release {
-                  if (project.hasProperty('STAR_KEYSTORE')) {
-                      storeFile file(STAR_KEYSTORE)
-                      storePassword STAR_STORE_PASSWORD
-                      keyAlias STAR_KEY_ALIAS
-                      keyPassword STAR_KEY_PASSWORD
-                  } else {
-                      // Fallback for CI: use the generated keystore
-                      storeFile file("star-release.keystore")
-                      storePassword "staroffice"
-                      keyAlias "star-key"
-                      keyPassword "staroffice"
+          content = open(path).read()
+          RELEASE_CFG = """
+                  release {
+                      if (project.hasProperty('STAR_KEYSTORE')) {
+                          storeFile file(STAR_KEYSTORE)
+                          storePassword STAR_STORE_PASSWORD
+                          keyAlias STAR_KEY_ALIAS
+                          keyPassword STAR_KEY_PASSWORD
+                      } else {
+                          // Fallback for CI: use the generated keystore
+                          storeFile file("star-release.keystore")
+                          storePassword "staroffice"
+                          keyAlias "star-key"
+                          keyPassword "staroffice"
+                      }
                   }
-              }
-          }
           """
-
-          # Insert signingConfigs before buildTypes if not already there
-          if 'signingConfigs' not in content:
-              content = content.replace(
-                  'buildTypes {',
-                  signing_block + '\nbuildTypes {'
-              )
-
-          # Replace release signingConfig
-          if 'release {' in content and 'signingConfig signingConfigs.release' not in content:
-              # Find release { ... } block and add signingConfig line
-              content = re.sub(
-                  r'(buildTypes\s*\{\s*release\s*\{[^}]*?)(minifyEnabled)',
-                  r'\1signingConfig signingConfigs.release\n\2',
-                  content,
-                  count=1
-              )
-
-          with open(path, 'w') as f:
-              f.write(content)
-          print("Patched build.gradle with signing config")
+          def insert_before_block_end(content, marker, text):
+              i = content.index(marker)
+              brace = content.index('{', i)
+              depth = 0
+              for j in range(brace, len(content)):
+                  if content[j] == '{':
+                      depth += 1
+                  elif content[j] == '}':
+                      depth -= 1
+                      if depth == 0:
+                          return content[:j] + text + content[j:]
+              raise AssertionError(f'bloc {marker} introuvable')
+          if 'signingConfigs {' not in content:
+              block = '\n    signingConfigs {' + RELEASE_CFG + '    }\n'
+              assert 'buildTypes {' in content, 'bloc buildTypes introuvable !'
+              content = content.replace('buildTypes {', block + '\nbuildTypes {', 1)
+              print('bloc signingConfigs créé')
+          else:
+              m = re.search(r'signingConfigs\s*\{(?:[^{}]|\{[^{}]*\})*?\n        release\s*\{', content)
+              if not m:
+                  content = insert_before_block_end(content, 'signingConfigs {', RELEASE_CFG)
+                  print('config release ajoutée au bloc signingConfigs')
+              else:
+                  print('config release déjà présente')
+          new_content, n = re.subn(
+              r'(release\s*\{[^}]*?)signingConfig signingConfigs\.debug',
+              r'\1signingConfig signingConfigs.release',
+              content,
+              count=1,
+          )
+          assert n == 1, 'PATCH RATE : bloc release introuvable !'
+          open(path, 'w').write(new_content)
+          print('release -> signingConfigs.release : OK')
           PYEOF
-          echo "=== build.gradle (signing section) ==="
-          grep -A 10 "signingConfigs" android/app/build.gradle || echo "No signingConfigs found"
+          echo "=== vérification signature release ==="
+          grep -c "signingConfigs.release" android/app/build.gradle
+          grep -A 8 "release {" android/app/build.gradle | head -12
 
       - name: 📝 Create debug signing keystore if missing
         run: |
@@ -146,7 +173,22 @@ jobs:
         run: |
           cd android
           chmod +x ./gradlew
-          ./gradlew assembleRelease --no-daemon --stacktrace
+          ./gradlew assembleRelease --no-daemon --stacktrace \
+            -PSTAR_KEYSTORE=star-release.keystore \
+            -PSTAR_STORE_PASSWORD="$STAR_STOREPASS" \
+            -PSTAR_KEY_ALIAS=star-key \
+            -PSTAR_KEY_PASSWORD="$STAR_STOREPASS"
+
+      - name: ✅ Vérifier la signature de l'APK
+        run: |
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          [ -x "$BT/apksigner" ] || BT=$(dirname "$(find "$ANDROID_HOME/build-tools" -name apksigner | head -n 1)")
+          APK=$(find android/app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
+          [ -n "$APK" ] || { echo "❌ aucun APK release trouvé"; exit 1; }
+          echo "APK: $APK ($(du -h "$APK" | cut -f1))"
+          "$BT/aapt" dump badging "$APK" | grep -E "^package:|^sdkVersion:|^targetSdkVersion:"
+          "$BT/apksigner" verify --print-certs "$APK" | grep -E "Verified|DN:|certificate SHA-256" | head -6
+          "$BT/apksigner" verify "$APK" && echo "✅ Signature APK VALIDE"
 
       - name: 🔨 Build Debug APK (bonus)
         run: |
@@ -192,6 +234,27 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - name: 📲 Publier l'APK en Release GitHub
+        if: success() && github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          name: StarOffice APK (dernière version)
+          body: |
+            ## 📱 StarOffice pour Android
+
+            **Installation :**
+            1. Téléchargez `StarOffice-release.apk` ci-dessous
+            2. Ouvrez le fichier sur votre téléphone Android
+            3. Activez *Sources inconnues* si Android le demande
+
+            > `StarOffice-release.apk` : version release signée, JS embarqué, fonctionne hors-ligne.
+            > `StarOffice-debug.apk` : version de développement (nécessite Metro).
+
+            ---
+            🤖 Généré automatiquement par GitHub Actions ([voir le build](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})).
+          files: artifacts/*.apk
+
       - name: 📊 Build summary
         if: always()
         run: |
@@ -200,6 +263,8 @@ jobs:
             echo ""
             if ls artifacts/*.apk 1>/dev/null 2>&1; then
               echo "### ✅ APKs générés"
+              echo ""
+              echo "**Lien direct (release) :** https://github.com/${{ github.repository }}/releases/download/apk-latest/StarOffice-release.apk"
               echo ""
               for f in artifacts/*.apk; do
                 SIZE=$(du -h "$f" | cut -f1)
